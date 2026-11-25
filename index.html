@@ -82,7 +82,16 @@ function burst(x,y,c,n,sp){
     G.parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rnd(.3,.7),max:.7,c,s:rnd(1.5,3.2)*U});}
 }
 function dropShard(e){G.sh.push({x:e.x,y:e.y,vx:rnd(-50,50)*U,vy:rnd(-50,50)*U,life:10});}
-function dropTok(e){G.tok.push({x:e.x,y:e.y,life:12});}
+const TYPES=['shield','shield','mirror','mirror','hilbert'];
+const TCOL={shield:'#6fb7ff',mirror:'#7dffb2',hilbert:'#ffc857'};
+const pickType=()=>TYPES[(Math.random()*TYPES.length)|0];
+function dropTok(e){G.tok.push({x:e.x,y:e.y,life:12,type:pickType()});}
+function hil(n,d){let x=0,y=0,t=d;for(let s=1;s<n;s*=2){const rx=(t>>1)&1,ry=(t^rx)&1;if(ry===0){if(rx===1){x=s-1-x;y=s-1-y;}const m=x;x=y;y=m;}x+=s*rx;y+=s*ry;t=t>>2;}return[x,y];}
+function startHil(){
+  const n=8,top=50*U,cw=W/n,ch=(H-top)/n,pts=[];
+  for(let d=0;d<n*n;d++){const p=hil(n,d);pts.push([p[0]*cw+cw/2,top+p[1]*ch+ch/2]);}
+  G.hil={i:0,pts,x:pts[0][0],y:pts[0][1]};
+}
 
 function hit(e){
   if(e.inv>0||e.dead)return;
@@ -178,7 +187,7 @@ function stepRing(g,dt){
 function start(){
   G={t:0,score:0,wave:0,hp:5,energy:0,branch:1,shards:0,need:8,combo:1,comboT:0,
      px:W/2,py:H*.68,pvx:0,pvy:0,ang:-Math.PI/2,inv:0,fireT:.3,shake:0,flash:0,kills:0,
-     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
+     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
   state='play'; screenEl.style.display='none'; novaBtn.style.display='block';
   nextWave();
 }
@@ -204,7 +213,7 @@ function showMenu(){
    '<ul><li>Hit a shape and it splits into copies of itself: Depth 3 → 2 → 1 → 0.</li>'+
    '<li>Your shots branch too: every bullet splits in two, again and again. Collect <b>shards</b> to raise your Recursion Depth.</li>'+
    '<li><b>NOVA</b>: a ring that spawns rings that spawn rings.</li>'+
-   '<li>Blue triangles drop now and then. Grab one for a <b>Sierpinski shield</b>: each hit splits it into three smaller shields.</li>'+
+   '<li>Power-ups drop now and then. Blue: a <b>Sierpinski shield</b> that splits into smaller shields when hit. Green: <b>Mirror Seed</b> drones, each orbited by a smaller drone. Amber: a <b>Hilbert drone</b> that sweeps the whole arena.</li>'+
    '<li>Drag to move (mouse, WASD or arrows also work). You aim and fire on your own. Space or the button fires Nova.</li></ul>'+
    '<button class="go" id="go">BEGIN</button>'+(best?'<p class="stat" style="margin-top:14px">Best <b>'+best+'</b></p>':'');
   screenEl.style.display='flex';
@@ -352,12 +361,52 @@ function update(dt){
     if(l<90*U){k.x+=dx/l*220*U*dt;k.y+=dy/l*220*U*dt;}
     if(l<20*U){
       k.life=0;
-      if(G.sp.reduce((s,p)=>s+(Math.pow(3,p.tier+1)-1)/2,0)<26){G.sp.push({tier:2,cd:.3,hit:false,x:G.px,y:G.py});G.toast={t:0,dur:1.8,text:'SIERPINSKI SHIELD'};}
-      else G.toast={t:0,dur:1.4,text:'SHIELD FULL'};
-      burst(G.px,G.py,'#6fb7ff',16,180);
+      if(k.type==='mirror'){
+        G.mirror=Math.min(3,G.mirror+1); G.mirrorT=30;
+        G.toast={t:0,dur:1.8,text:G.mirror>1?'MIRROR SEED DEPTH '+G.mirror:'MIRROR SEED'};
+      }else if(k.type==='hilbert'){
+        startHil(); G.toast={t:0,dur:1.8,text:'HILBERT DRONE'};
+      }else if(G.sp.reduce((s,p)=>s+(Math.pow(3,p.tier+1)-1)/2,0)<26){
+        G.sp.push({tier:2,cd:.3,hit:false,x:G.px,y:G.py}); G.toast={t:0,dur:1.8,text:'SIERPINSKI SHIELD'};
+      }else G.toast={t:0,dur:1.4,text:'SHIELD FULL'};
+      burst(G.px,G.py,TCOL[k.type]||'#6fb7ff',16,180);
     }
   }
   G.tok=G.tok.filter(k=>k.life>0);
+
+  // --- MIRROR SEED: drones orbit you, and each drone is orbited by a smaller drone
+  G.drones=[];
+  if(G.mirrorT>0){
+    G.mirrorT-=dt;
+    let qx=G.px,qy=G.py;
+    for(let i=0;i<G.mirror;i++){
+      const a=G.t*(1.7+i*.6)*(i%2?-1:1)+i*2.1,rho=(40-i*9)*U,ox=qx,oy=qy;
+      qx+=Math.cos(a)*rho; qy+=Math.sin(a)*rho;
+      G.drones.push({x:qx,y:qy,ox,oy,k:Math.pow(.62,i+1),i});
+    }
+    for(const d of G.drones){
+      G.dft[d.i]-=dt;
+      if(G.dft[d.i]<=0&&G.en.length){
+        let tg=null,bd=1e12;
+        for(const e of G.en){if(e.dead)continue;const q=(e.x-d.x)**2+(e.y-d.y)**2;if(q<bd){bd=q;tg=e;}}
+        if(tg){G.bullets.push({x:d.x,y:d.y,a:Math.atan2(tg.y-d.y,tg.x-d.x),gen:1,age:0,life:.9});G.dft[d.i]=.55;}
+      }
+    }
+    if(G.mirrorT<=0)G.mirror=0;
+  }
+  // --- HILBERT DRONE: sweeps a space-filling curve across the whole arena
+  if(G.hil){
+    const h=G.hil; h.i+=dt*13;
+    if(h.i>=h.pts.length-1)G.hil=null;
+    else{
+      const i0=h.i|0,f=h.i-i0,a=h.pts[i0],b=h.pts[i0+1];
+      h.x=a[0]+(b[0]-a[0])*f; h.y=a[1]+(b[1]-a[1])*f;
+      for(const e of G.en){
+        if(e.dead||e.ringT>0)continue;
+        if(Math.hypot(e.x-h.x,e.y-h.y)<e.r+18*U){e.ringT=.35;hit(e);}
+      }
+    }
+  }
 
   // --- waves
   if(G.delay>0)G.delay-=dt;
@@ -365,7 +414,7 @@ function update(dt){
     G.spawnT-=dt;
     if(G.spawnT<=0&&G.en.length<40){spawn(G.queue.shift());G.spawnT=Math.max(.35,.75-.1*Math.floor((G.wave-1)/4));}
   }else if(!G.en.length&&!G.clearing){G.clearing=true;G.nextIn=2;G.energy=Math.min(100,G.energy+20);
-    if(G.wave%3===0)G.tok.push({x:rnd(60,W-60),y:rnd(H*.3,H*.6),life:14});}
+    if(G.wave%3===0)G.tok.push({x:rnd(60,W-60),y:rnd(H*.3,H*.6),life:14,type:pickType()});}
   if(G.clearing){G.nextIn-=dt;if(G.nextIn<=0)nextWave();}
 
   if(G.comboT>0){G.comboT-=dt;if(G.comboT<=0)G.combo=1;}
@@ -412,11 +461,27 @@ function render(){
     if(s.life<2&&((s.life*10)|0)%2)continue;
     ctx.beginPath(); poly(s.x,s.y,6*U,G.t*3,3,0); ctx.fill();
   }
+  // Hilbert drone trail and Mirror Seed drones
+  if(G.hil){
+    const h=G.hil,n=Math.min(h.pts.length-1,(h.i|0)+1);
+    ctx.strokeStyle='rgba(255,200,87,.55)'; ctx.lineWidth=2*U; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(h.pts[0][0],h.pts[0][1]);
+    for(let i=1;i<=n;i++)ctx.lineTo(h.pts[i][0],h.pts[i][1]);
+    ctx.lineTo(h.x,h.y); ctx.stroke();
+    ctx.fillStyle='#ffc857'; ctx.beginPath(); ctx.arc(h.x,h.y,5*U,0,TAU); ctx.fill();
+  }
+  ctx.lineWidth=1.6*U;
+  for(const d of G.drones){
+    ctx.strokeStyle='rgba(125,255,178,.25)'; ctx.beginPath(); ctx.moveTo(d.ox,d.oy); ctx.lineTo(d.x,d.y); ctx.stroke();
+    ctx.strokeStyle='#7dffb2'; ctx.fillStyle='rgba(125,255,178,.18)';
+    ctx.beginPath(); poly(d.x,d.y,17*U*Math.max(.5,d.k*1.6),G.ang,3,d.i===0?1:0); ctx.stroke();
+    ctx.beginPath(); poly(d.x,d.y,17*U*Math.max(.5,d.k*1.6),G.ang,3,0); ctx.fill();
+  }
   // shield tokens and shield pieces (each piece contains copies of itself)
   ctx.lineWidth=1.8*U;
   for(const k of G.tok){
     if(k.life<2&&((k.life*10)|0)%2)continue;
-    ctx.strokeStyle='#6fb7ff'; ctx.beginPath(); poly(k.x,k.y,10*U,G.t*1.5,3,1); ctx.stroke();
+    ctx.strokeStyle=TCOL[k.type]||'#6fb7ff'; ctx.beginPath(); poly(k.x,k.y,10*U,G.t*1.5,k.type==='hilbert'?4:3,1); ctx.stroke();
   }
   for(let i=0;i<G.sp.length;i++){
     const p=G.sp[i],r=(6+p.tier*5)*U;
@@ -489,6 +554,7 @@ function hud(){
   ctx.textAlign='center'; ctx.fillText('WAVE '+G.wave,W/2,pad);
   ctx.textAlign='right'; ctx.fillStyle='#7dffb2';
   ctx.fillText('DEPTH '+G.branch+(G.branch>=4?' MAX':''),W-pad,pad);
+  if(G.mirror>0){ctx.fillStyle='#7dffb2';ctx.fillText('MIRROR '+G.mirror+' · '+Math.ceil(G.mirrorT)+'s',W-pad,pad+(G.sp.length?50:34)*U);}
   if(G.sp.length){ctx.fillStyle='#6fb7ff';ctx.fillText('SHIELD '+G.sp.reduce((s,p)=>s+(Math.pow(3,p.tier+1)-1)/2,0),W-pad,pad+34*U);}
   // shard progress
   const bw=90*U,bx=W-pad-bw,by=pad+22*U;
