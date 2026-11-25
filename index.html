@@ -109,8 +109,8 @@ function burst(x,y,c,n,sp){
     G.parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rnd(.3,.7),max:.7,c,s:rnd(1.5,3.2)*U});}
 }
 function dropShard(e){G.sh.push({x:e.x,y:e.y,vx:rnd(-50,50)*U,vy:rnd(-50,50)*U,life:10});}
-const TYPES=['shield','shield','mirror','mirror','hilbert'];
-const TCOL={shield:'#6fb7ff',mirror:'#7dffb2',hilbert:'#ffc857'};
+const TYPES=['shield','shield','mirror','mirror','hilbert','magnet','magnet'];
+const TCOL={shield:'#6fb7ff',mirror:'#7dffb2',hilbert:'#ffc857',magnet:'#ff8fd0'};
 const pickType=()=>TYPES[(Math.random()*TYPES.length)|0];
 function dropPair(x,y,life){
   const a=pickType(); let b=pickType(),g=0; while(b===a&&g++<30)b=pickType();
@@ -239,7 +239,7 @@ function stepRing(g,dt){
 function start(){
   G={t:0,score:0,wave:0,hp:5,energy:0,branch:1,shards:0,need:8,combo:1,comboT:0,
      px:W/2,py:H*.68,pvx:0,pvy:0,ang:-Math.PI/2,inv:0,fireT:.3,shake:0,flash:0,kills:0,
-     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mode:'branch',famN:0,mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
+     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mode:'branch',famN:0,magT:0,mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
   state='play'; screenEl.style.display='none'; novaBtn.style.display='block'; modeBtn.style.display='block'; syncMode();
   nextWave();
 }
@@ -258,8 +258,9 @@ function gameOver(){
   },800);
 }
 /* ---------- versioning, settings and splash ---------- */
-const APP_VERSION='1.4.0', BUILD_DATE='2026-11-25';
+const APP_VERSION='1.5.0', BUILD_DATE='2026-11-25';
 const CHANGELOG=[
+ {v:'1.5.0',t:'Stronger shard magnet, plus a Magnet power-up that pulls every shard on screen'},
  {v:'1.4.0',t:'Splash screen, settings, update checker, installable app'},
  {v:'1.3.0',t:'Branch or Focus weapons, regrowth, family bonus, paired power-ups'},
  {v:'1.2.0',t:'Helper power-ups: Mirror Seed and Hilbert Drone'},
@@ -344,7 +345,7 @@ function showHow(){
    '<ul><li>Hit a shape and it splits into copies of itself: Depth 3 → 2 → 1 → 0.</li>'+
    '<li>Your shots branch too: every bullet splits in two, again and again. Collect <b>shards</b> to raise your Recursion Depth.</li>'+
    '<li><b>NOVA</b>: a ring that spawns rings that spawn rings.</li>'+
-   '<li>Power-ups drop now and then. Blue: a <b>Sierpinski shield</b> that splits into smaller shields when hit. Green: <b>Mirror Seed</b> drones, each orbited by a smaller drone. Amber: a <b>Hilbert drone</b> that sweeps the whole arena. Power-ups come in pairs joined by a dotted line: take one and the other vanishes.</li>'+
+   '<li>Power-ups drop now and then. Blue: a <b>Sierpinski shield</b> that splits into smaller shields when hit. Green: <b>Mirror Seed</b> drones, each orbited by a smaller drone. Amber: a <b>Hilbert drone</b> that sweeps the whole arena. Pink: a <b>Magnet</b> that pulls every shard on screen to you. Power-ups come in pairs joined by a dotted line: take one and the other vanishes.</li>'+
    '<li><b>Branch or Focus</b> (button, or F): Branch splits shots and shapes into swarms for big scores. Focus fires one heavy shot that ends a shape with no copies, but pays little.</li>'+
    '<li>A shape left alone for a few seconds <b>grows back</b> one depth. Wipe out every copy from one starting shape for a <b>family bonus</b>.</li>'+
    '<li>Drag to move (mouse, WASD or arrows also work). You aim and fire on your own. Space or the button fires Nova.</li></ul>'+
@@ -495,7 +496,9 @@ function update(dt){
   for(const s of G.sh){
     s.life-=dt;
     const dx=G.px-s.x,dy=G.py-s.y,l=Math.hypot(dx,dy)||1;
-    if(l<120*U){s.vx+=dx/l*900*U*dt;s.vy+=dy/l*900*U*dt;}
+    // MAGNET: a strong base pull that grows as shards get closer; the Magnet power-up pulls from anywhere
+    const mg=G.magT>0,R=(mg?3000:260)*U;
+    if(l<R){const boost=mg?1:1+(1-l/R)*2;s.vx+=dx/l*(mg?2600:1500)*boost*U*dt;s.vy+=dy/l*(mg?2600:1500)*boost*U*dt;}
     s.vx*=.95;s.vy*=.95; s.x+=s.vx*dt; s.y+=s.vy*dt;
     if(l<18*U){
       s.life=0; G.energy=Math.min(100,G.energy+7); G.score+=5; G.shards++;
@@ -512,13 +515,15 @@ function update(dt){
   for(const k of G.tok){
     k.life-=dt;
     const dx=G.px-k.x,dy=G.py-k.y,l=Math.hypot(dx,dy)||1;
-    if(!k.fork&&l<90*U){k.x+=dx/l*220*U*dt;k.y+=dy/l*220*U*dt;}
+    if(!k.fork&&l<(G.magT>0?3000:130)*U){const v=(G.magT>0?520:300)*U*dt;k.x+=dx/l*v;k.y+=dy/l*v;}
     if(l<20*U){
       k.life=0;
       if(k.fork)for(const o of G.tok)if(o.fork===k.fork)o.life=0;
       if(k.type==='mirror'){
         G.mirror=Math.min(3,G.mirror+1); G.mirrorT=30;
         G.toast={t:0,dur:1.8,text:G.mirror>1?'MIRROR SEED DEPTH '+G.mirror:'MIRROR SEED'};
+      }else if(k.type==='magnet'){
+        G.magT=12; G.toast={t:0,dur:1.8,text:'MAGNET'};
       }else if(k.type==='hilbert'){
         startHil(); G.toast={t:0,dur:1.8,text:'HILBERT DRONE'};
       }else if(G.sp.reduce((s,p)=>s+(Math.pow(3,p.tier+1)-1)/2,0)<26){
@@ -530,6 +535,7 @@ function update(dt){
   G.tok=G.tok.filter(k=>k.life>0);
 
   // --- MIRROR SEED: drones orbit you, and each drone is orbited by a smaller drone
+  if(G.magT>0)G.magT-=dt;
   G.drones=[];
   if(G.mirrorT>0){
     G.mirrorT-=dt;
@@ -616,6 +622,15 @@ function render(){
     if(s.life<2&&((s.life*10)|0)%2)continue;
     ctx.beginPath(); poly(s.x,s.y,6*U,G.t*3,3,0); ctx.fill();
   }
+  // magnet field: rings flowing inward
+  if(G.magT>0){
+    ctx.lineWidth=2*U;
+    for(let k=0;k<3;k++){
+      const ph=(G.t*.9+k/3)%1,r=(1-ph)*220*U;
+      ctx.strokeStyle='rgba(255,143,208,'+(ph*.5)+')';
+      ctx.beginPath(); ctx.arc(G.px,G.py,r,0,TAU); ctx.stroke();
+    }
+  }
   // Hilbert drone trail and Mirror Seed drones
   if(G.hil){
     const h=G.hil,n=Math.min(h.pts.length-1,(h.i|0)+1);
@@ -640,7 +655,7 @@ function render(){
       if(o){ctx.setLineDash([4,6]);ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(k.x,k.y);ctx.lineTo(o.x,o.y);ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1.8*U;}
     }
     if(k.life<2&&((k.life*10)|0)%2)continue;
-    ctx.strokeStyle=TCOL[k.type]||'#6fb7ff'; ctx.beginPath(); poly(k.x,k.y,10*U,G.t*1.5,k.type==='hilbert'?4:3,1); ctx.stroke();
+    ctx.strokeStyle=TCOL[k.type]||'#6fb7ff'; ctx.beginPath(); poly(k.x,k.y,10*U,G.t*1.5,({hilbert:4,magnet:6})[k.type]||3,1); ctx.stroke();
   }
   for(let i=0;i<G.sp.length;i++){
     const p=G.sp[i],r=(6+p.tier*5)*U;
@@ -719,6 +734,7 @@ function hud(){
   ctx.textAlign='center'; ctx.fillText('WAVE '+G.wave,W/2,pad);
   ctx.textAlign='right'; ctx.fillStyle='#7dffb2';
   ctx.fillText('DEPTH '+G.branch+(G.branch>=4?' MAX':''),W-pad,pad);
+  if(G.magT>0){ctx.fillStyle='#ff8fd0';ctx.fillText('MAGNET '+Math.ceil(G.magT)+'s',W-pad,pad+(34+(G.sp.length?16:0)+(G.mirror>0?16:0))*U);}
   if(G.mirror>0){ctx.fillStyle='#7dffb2';ctx.fillText('MIRROR '+G.mirror+' · '+Math.ceil(G.mirrorT)+'s',W-pad,pad+(G.sp.length?50:34)*U);}
   if(G.sp.length){ctx.fillStyle='#6fb7ff';ctx.fillText('SHIELD '+G.sp.reduce((s,p)=>s+(Math.pow(3,p.tier+1)-1)/2,0),W-pad,pad+34*U);}
   // shard progress
