@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Fractal Fight</title>
+<style>
+  html,body{margin:0;height:100%;background:#070a18;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#dbe8ff}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #nova{position:fixed;right:16px;bottom:20px;width:82px;height:82px;border-radius:50%;display:none;
+    border:2px solid #4ee0ff66;color:#bfeaff;font-weight:800;letter-spacing:.1em;font-size:13px;--p:0%;
+    background:linear-gradient(to top,#4ee0ff77 var(--p),#0b1230dd var(--p));touch-action:manipulation}
+  #nova.ready{border-color:#fff;color:#fff;box-shadow:0 0 22px #4ee0ffcc;animation:pulse .8s infinite alternate}
+  @keyframes pulse{to{box-shadow:0 0 34px #b28cffee}}
+  #screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;
+    background:radial-gradient(#070a18aa,#070a18ee);overflow:auto}
+  .panel{max-width:460px;margin:auto;text-align:center}
+  h1{font-size:clamp(34px,10vw,58px);letter-spacing:.14em;margin:0;line-height:1.02;
+    background:linear-gradient(90deg,#4ee0ff,#b28cff,#ff5fa8);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{margin:6px 0 14px;color:#8fa5d8;letter-spacing:.2em;font-size:12px;text-transform:uppercase}
+  .story{font-size:14px;line-height:1.5;color:#b9c9ee;margin:0 0 12px}
+  ul{list-style:none;padding:0;margin:0 0 16px;text-align:left;font-size:13px;line-height:1.45;color:#9fb3e0}
+  li{margin:6px 0;padding-left:20px;position:relative}
+  li:before{content:"\25B3";position:absolute;left:0;color:#4ee0ff}
+  b{color:#fff}
+  button.go{border:0;border-radius:999px;padding:14px 40px;font-size:16px;font-weight:800;letter-spacing:.12em;color:#070a18;
+    background:linear-gradient(90deg,#4ee0ff,#b28cff);touch-action:manipulation}
+  .stat{font-size:15px;margin:4px 0;color:#cfe0ff}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="nova">NOVA</button>
+<div id="screen"><div class="panel" id="panel"></div></div>
+
+<script>
+(()=>{
+'use strict';
+const TAU=Math.PI*2, F=0.42;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const screenEl=document.getElementById('screen'), panel=document.getElementById('panel'), novaBtn=document.getElementById('nova');
+let W=0,H=0,DPR=1,U=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  U=Math.max(.68,Math.min(1.25,Math.min(W,H)/560));
+}
+addEventListener('resize',resize); resize();
+const rnd=(a,b)=>a+Math.random()*(b-a);
+let G=null, state='menu', best=0, bgT=0;
+try{best=+localStorage.getItem('ff_best')||0}catch(e){}
+
+/* ---------- story ---------- */
+const CH=[
+ ['I · The Triangle Tide','Strike a shape and it splits into smaller copies of itself. Unmake them all, down to Depth 0.'],
+ ['II · The Square Swarm','Squares split in two, and they never stop coming. Let your shots branch.'],
+ ['III · The Pentagon Plague','Five-sided and fast. Shards feed your Recursion: collect them.'],
+ ['IV · The Koch Queen','The Void sends its first sovereign. Break the Queen and every copy she contains.']
+];
+const COL={3:'#4ee0ff',4:'#ff5fa8',5:'#ffc857',boss:'#b28cff'};
+const colOf=e=>e.boss?COL.boss:COL[e.sides];
+
+/* ---------- the recursive heart: a polygon that contains smaller copies of itself ---------- */
+function poly(x,y,r,rot,n,d){
+  ctx.moveTo(x+Math.cos(rot)*r,y+Math.sin(rot)*r);
+  for(let i=1;i<=n;i++){const a=rot+i*TAU/n;ctx.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r);}
+  if(d>0){
+    for(let i=0;i<n;i++){const a=rot+i*TAU/n;poly(x+Math.cos(a)*r,y+Math.sin(a)*r,r*F,rot,n,d-1);}
+  }
+}
+
+/* ---------- entities ---------- */
+const rOf=(d,boss)=>(boss?78:12+d*10)*U;
+function mk(sides,depth,x,y,vx,vy,boss){
+  return {sides,depth,x,y,vx,vy,r:rOf(depth,boss),rot:rnd(0,TAU),spin:rnd(-1.6,1.6),boss:!!boss,hp:boss?6:1,inv:0,flash:0,ringT:0,shT:0,dead:false};
+}
+function burst(x,y,c,n,sp){
+  if(G.parts.length>700)return;
+  for(let i=0;i<n;i++){const a=rnd(0,TAU),s=rnd(.2,1)*sp*U;
+    G.parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rnd(.3,.7),max:.7,c,s:rnd(1.5,3.2)*U});}
+}
+function dropShard(e){G.sh.push({x:e.x,y:e.y,vx:rnd(-50,50)*U,vy:rnd(-50,50)*U,life:10});}
+function dropTok(e){G.tok.push({x:e.x,y:e.y,life:12});}
+
+function hit(e){
+  if(e.inv>0||e.dead)return;
+  e.hp--; e.flash=.09;
+  if(e.hp>0){burst(e.x,e.y,colOf(e),6,130);G.shake=Math.max(G.shake,3);return;}
+  kill(e);
+}
+function kill(e){
+  e.dead=true; G.kills++;
+  G.combo=Math.min(5,G.combo+.1); G.comboT=2.2;
+  G.score+=Math.round((e.depth+1)*10*G.combo*(e.boss?5:1));
+  burst(e.x,e.y,colOf(e),8+e.depth*5,170+e.depth*40);
+  G.shake=Math.max(G.shake,e.boss?14:3+e.depth*1.5);
+  if(e.depth>0){
+    // RECURSION: a shape of depth d breaks into copies of itself at depth d-1
+    const k=e.sides===3?3:2, base=rnd(0,TAU);
+    for(let i=0;i<k;i++){
+      const a=base+i*TAU/k,cx=Math.cos(a),cy=Math.sin(a);
+      const c=mk(e.sides,e.depth-1,e.x+cx*e.r*.55,e.y+cy*e.r*.55,e.vx*.5+cx*170*U,e.vy*.5+cy*170*U,false);
+      c.inv=.2; G.en.push(c);
+    }
+    if(Math.random()<.25)dropShard(e);
+  }else{
+    dropShard(e);
+    if(Math.random()<.07)dropTok(e);
+  }
+}
+
+/* ---------- waves ---------- */
+function nextWave(){
+  G.wave++;
+  const w=G.wave, idx=(w-1)%4, cyc=Math.floor((w-1)/4);
+  const cnt=4+cyc*3+(idx===2?2:0), dep=Math.min(3,1+(idx>0?1:0)+cyc);
+  G.queue=[];
+  if(idx===3){
+    G.queue.push({s:3,d:3,boss:true});
+    for(let i=0;i<2+cyc;i++)G.queue.push({s:3,d:Math.min(3,1+cyc)});
+  }else{
+    for(let i=0;i<cnt;i++){
+      const s=idx===0?3:idx===1?4:[3,4,5][i%3];
+      G.queue.push({s,d:s===5?Math.min(2,dep):dep});
+    }
+  }
+  G.spawnT=0; G.delay=1.6; G.clearing=false;
+  G.banner={t:0,dur:4.4,title:(cyc?'Descent '+(cyc+1)+' · ':'')+CH[idx][0],text:CH[idx][1]};
+}
+function spawn(sp){
+  const m=50*U; let x,y; const side=(Math.random()*4)|0;
+  if(side===0){x=rnd(0,W);y=-m}else if(side===1){x=W+m;y=rnd(0,H)}else if(side===2){x=rnd(0,W);y=H+m}else{x=-m;y=rnd(0,H)}
+  G.en.push(mk(sp.s,sp.d,x,y,0,0,sp.boss));
+}
+
+/* ---------- weapon: every bullet recursively branches ---------- */
+function fire(){
+  const a=G.ang;
+  G.bullets.push({x:G.px+Math.cos(a)*16*U,y:G.py+Math.sin(a)*16*U,a,gen:G.branch,age:0,life:1.0});
+}
+function stepBullet(b,dt){
+  b.x+=Math.cos(b.a)*560*U*dt; b.y+=Math.sin(b.a)*560*U*dt; b.age+=dt; b.life-=dt;
+  if(b.gen>0&&b.age>=.09){
+    const sp=.36*Math.pow(.78,G.branch-b.gen);
+    G.bullets.push({x:b.x,y:b.y,a:b.a-sp,gen:b.gen-1,age:0,life:b.life});
+    G.bullets.push({x:b.x,y:b.y,a:b.a+sp,gen:b.gen-1,age:0,life:b.life});
+    b.life=0;
+  }
+}
+
+/* ---------- Nova: a ring that spawns rings that spawn rings ---------- */
+function nova(){
+  if(state!=='play'||G.energy<100)return;
+  G.energy=0; G.flash=.35;
+  G.rings.push({x:G.px,y:G.py,r:8*U,v:380*U,max:140*U,gen:3,dead:false});
+}
+function stepRing(g,dt){
+  g.r+=g.v*dt;
+  if(g.r>=g.max){
+    g.dead=true;
+    if(g.gen>0){
+      const o=rnd(0,TAU);
+      for(let i=0;i<5;i++){const a=o+i*TAU/5;
+        G.rings.push({x:g.x+Math.cos(a)*g.r,y:g.y+Math.sin(a)*g.r,r:3*U,v:g.v*.85,max:g.max*.5,gen:g.gen-1,dead:false});}
+    }
+    return;
+  }
+  for(const e of G.en){
+    if(e.dead||e.ringT>0)continue;
+    const d=Math.hypot(e.x-g.x,e.y-g.y);
+    if(Math.abs(d-g.r)<e.r+5){e.ringT=.3;hit(e);}
+  }
+}
+
+/* ---------- game flow ---------- */
+function start(){
+  G={t:0,score:0,wave:0,hp:5,energy:0,branch:1,shards:0,need:8,combo:1,comboT:0,
+     px:W/2,py:H*.68,pvx:0,pvy:0,ang:-Math.PI/2,inv:0,fireT:.3,shake:0,flash:0,kills:0,
+     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
+  state='play'; screenEl.style.display='none'; novaBtn.style.display='block';
+  nextWave();
+}
+function gameOver(){
+  state='over'; novaBtn.style.display='none';
+  burst(G.px,G.py,'#ffffff',60,300);
+  const nb=G.score>best; if(nb){best=G.score;try{localStorage.setItem('ff_best',String(best))}catch(e){}}
+  setTimeout(()=>{
+    panel.innerHTML='<h1 style="font-size:clamp(28px,8vw,44px)">THE VOID FOLDS</h1>'+
+      '<p class="sub">the seed is spent, but never lost</p>'+
+      '<p class="story">Somewhere inside the wreckage, a smaller Seed is already forming. It remembers you.</p>'+
+      '<p class="stat">Score <b>'+G.score+'</b> &nbsp;·&nbsp; Wave <b>'+G.wave+'</b> &nbsp;·&nbsp; Shapes unmade <b>'+G.kills+'</b></p>'+
+      '<p class="stat">'+(nb?'<b>New best!</b>':'Best <b>'+best+'</b>')+'</p><br>'+
+      '<button class="go" id="go">FIGHT AGAIN</button>';
+    screenEl.style.display='flex';
+  },800);
+}
+function showMenu(){
+  panel.innerHTML='<h1>FRACTAL<br>FIGHT</h1><p class="sub">a geometric game of recursion</p>'+
+   '<p class="story">Before the first shape, there was the <b>Seed</b>: a form that contained a smaller copy of itself, forever. '+
+   'The Void could not bear a thing that remembers itself, so it sent the <b>Splitters</b>: shapes that shatter into smaller copies when wounded. '+
+   'You are <b>Prime</b>, the last Seed. Unmake them down to <b>Depth 0</b>.</p>'+
+   '<ul><li>Hit a shape and it splits into copies of itself: Depth 3 → 2 → 1 → 0.</li>'+
+   '<li>Your shots branch too: every bullet splits in two, again and again. Collect <b>shards</b> to raise your Recursion Depth.</li>'+
+   '<li><b>NOVA</b>: a ring that spawns rings that spawn rings.</li>'+
+   '<li>Blue triangles drop now and then. Grab one for a <b>Sierpinski shield</b>: each hit splits it into three smaller shields.</li>'+
+   '<li>Drag to move (mouse, WASD or arrows also work). You aim and fire on your own. Space or the button fires Nova.</li></ul>'+
+   '<button class="go" id="go">BEGIN</button>'+(best?'<p class="stat" style="margin-top:14px">Best <b>'+best+'</b></p>':'');
+  screenEl.style.display='flex';
+}
+panel.addEventListener('click',e=>{if(e.target.id==='go')start();});
+novaBtn.addEventListener('pointerdown',e=>{e.stopPropagation();nova();});
+
+/* ---------- input ---------- */
+const keys={}; let ptr=null, mouse={x:0,y:0,on:false};
+addEventListener('keydown',e=>{
+  keys[e.code]=1;
+  if(e.code==='Space'){e.preventDefault();nova();}
+  if(e.code==='Enter'&&state!=='play'&&screenEl.style.display!=='none')start();
+});
+addEventListener('keyup',e=>{keys[e.code]=0;});
+cv.addEventListener('pointerdown',e=>{
+  try{cv.setPointerCapture(e.pointerId)}catch(_){}
+  if(e.pointerType==='mouse'){mouse.x=e.clientX;mouse.y=e.clientY;mouse.on=true;}
+  else ptr={id:e.pointerId,ox:e.clientX,oy:e.clientY,x:e.clientX,y:e.clientY};
+});
+cv.addEventListener('pointermove',e=>{
+  if(e.pointerType==='mouse'){mouse.x=e.clientX;mouse.y=e.clientY;mouse.on=true;}
+  else if(ptr&&ptr.id===e.pointerId){ptr.x=e.clientX;ptr.y=e.clientY;}
+});
+const endPtr=e=>{if(ptr&&ptr.id===e.pointerId)ptr=null;};
+cv.addEventListener('pointerup',endPtr); cv.addEventListener('pointercancel',endPtr);
+
+/* ---------- update ---------- */
+function updateFx(dt){
+  for(const p of G.parts){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.96;p.vy*=.96;p.life-=dt;}
+  G.parts=G.parts.filter(p=>p.life>0);
+  G.shake=Math.max(0,G.shake-dt*40);
+  if(G.flash>0)G.flash-=dt;
+}
+function update(dt){
+  G.t+=dt;
+  // --- movement input
+  let ix=0,iy=0;
+  if(keys.KeyA||keys.ArrowLeft)ix-=1; if(keys.KeyD||keys.ArrowRight)ix+=1;
+  if(keys.KeyW||keys.ArrowUp)iy-=1; if(keys.KeyS||keys.ArrowDown)iy+=1;
+  if(ptr){const dx=ptr.x-ptr.ox,dy=ptr.y-ptr.oy,l=Math.hypot(dx,dy);
+    if(l>6){const k=Math.min(1,l/(70*U))/l;ix+=dx*k;iy+=dy*k;}}
+  else if(mouse.on&&!ix&&!iy){const dx=mouse.x-G.px,dy=mouse.y-G.py,l=Math.hypot(dx,dy);
+    if(l>10*U){const k=Math.min(1,l/(70*U))/l;ix+=dx*k;iy+=dy*k;}}
+  const il=Math.hypot(ix,iy); if(il>1){ix/=il;iy/=il;}
+  const sp=290*U, f=Math.min(1,dt*10);
+  G.pvx+=(ix*sp-G.pvx)*f; G.pvy+=(iy*sp-G.pvy)*f;
+  G.px=Math.max(18*U,Math.min(W-18*U,G.px+G.pvx*dt));
+  G.py=Math.max(50*U,Math.min(H-18*U,G.py+G.pvy*dt));
+  if(G.inv>0)G.inv-=dt;
+
+  // --- aim at nearest enemy and auto-fire
+  let tgt=null,bd=1e12;
+  for(const e of G.en){if(e.dead)continue;const d=(e.x-G.px)**2+(e.y-G.py)**2;if(d<bd){bd=d;tgt=e;}}
+  if(tgt){
+    const ta=Math.atan2(tgt.y-G.py,tgt.x-G.px);
+    let da=ta-G.ang; while(da>Math.PI)da-=TAU; while(da<-Math.PI)da+=TAU;
+    G.ang+=da*Math.min(1,dt*18);
+    G.fireT-=dt;
+    if(G.fireT<=0){fire();G.fireT=.30-.02*G.branch;}
+  }
+
+  // --- bullets
+  for(const b of G.bullets)stepBullet(b,dt);
+  const m=40;
+  for(const b of G.bullets){
+    if(b.life<=0)continue;
+    if(b.x<-m||b.x>W+m||b.y<-m||b.y>H+m){b.life=0;continue;}
+    for(const e of G.en){
+      if(e.dead)continue;
+      const rr=e.r*1.05+3;
+      if((e.x-b.x)**2+(e.y-b.y)**2<rr*rr){
+        if(e.inv>0)continue;
+        hit(e); b.life=0; break;
+      }
+    }
+  }
+  G.bullets=G.bullets.filter(b=>b.life>0);
+
+  // --- rings
+  for(const g of G.rings)stepRing(g,dt);
+  G.rings=G.rings.filter(g=>!g.dead);
+
+  // --- shield pieces orbit the player
+  {const n=G.sp.length,rho=(30+n*1.8)*U;
+   for(let i=0;i<n;i++){const p=G.sp[i],a=G.t*2.2+i*TAU/n;p.x=G.px+Math.cos(a)*rho;p.y=G.py+Math.sin(a)*rho;if(p.cd>0)p.cd-=dt;}}
+  // --- enemies
+  for(const e of G.en){
+    if(e.dead)continue;
+    const dx=G.px-e.x,dy=G.py-e.y,l=Math.hypot(dx,dy)||1;
+    const s=(e.boss?38:45+(3-e.depth)*25+G.wave*2.5)*U;
+    e.vx+=(dx/l*s-e.vx)*dt*.9; e.vy+=(dy/l*s-e.vy)*dt*.9;
+    e.x+=e.vx*dt; e.y+=e.vy*dt; e.rot+=e.spin*dt;
+    if(e.inv>0)e.inv-=dt; if(e.flash>0)e.flash-=dt; if(e.ringT>0)e.ringT-=dt; if(e.shT>0)e.shT-=dt;
+    let blocked=false;
+    if(e.shT<=0)for(const p of G.sp){
+      if(p.cd>0||p.hit)continue;
+      if(Math.hypot(e.x-p.x,e.y-p.y)<e.r*.95+(6+p.tier*5)*U){
+        p.hit=true; e.shT=.4; e.inv=0; blocked=true;
+        burst(p.x,p.y,'#6fb7ff',10+p.tier*4,150); G.shake=Math.max(G.shake,4);
+        hit(e); break;
+      }
+    }
+    if(blocked)continue;
+    if(G.inv<=0&&l<e.r*.95+13*U){
+      G.hp--; G.inv=1.4; G.shake=16;
+      burst(G.px,G.py,'#ff6b6b',22,220);
+      G.pvx-=dx/l*400*U; G.pvy-=dy/l*400*U;
+      e.inv=0; hit(e);
+      if(G.hp<=0){gameOver();return;}
+    }
+  }
+  G.en=G.en.filter(e=>!e.dead);
+  // SIERPINSKI SHIELD: a struck piece splits into three smaller pieces; the smallest just break
+  if(G.sp.some(p=>p.hit)){
+    const ns=[];
+    for(const p of G.sp){
+      if(!p.hit){ns.push(p);continue;}
+      if(p.tier>0)for(let j=0;j<3;j++)ns.push({tier:p.tier-1,cd:.35,hit:false,x:p.x,y:p.y});
+    }
+    G.sp=ns;
+  }
+
+  // --- shards
+  for(const s of G.sh){
+    s.life-=dt;
+    const dx=G.px-s.x,dy=G.py-s.y,l=Math.hypot(dx,dy)||1;
+    if(l<120*U){s.vx+=dx/l*900*U*dt;s.vy+=dy/l*900*U*dt;}
+    s.vx*=.95;s.vy*=.95; s.x+=s.vx*dt; s.y+=s.vy*dt;
+    if(l<18*U){
+      s.life=0; G.energy=Math.min(100,G.energy+7); G.score+=5; G.shards++;
+      if(G.shards>=G.need){
+        G.shards=0; G.need+=6;
+        if(G.branch<4){G.branch++;G.toast={t:0,dur:1.8,text:'RECURSION DEPTH '+G.branch};}
+        else{G.hp=Math.min(5,G.hp+1);G.toast={t:0,dur:1.8,text:'FRACTAL MENDING +1'};}
+      }
+    }
+  }
+  G.sh=G.sh.filter(s=>s.life>0);
+
+  // --- shield tokens
+  for(const k of G.tok){
+    k.life-=dt;
+    const dx=G.px-k.x,dy=G.py-k.y,l=Math.hypot(dx,dy)||1;
+    if(l<90*U){k.x+=dx/l*220*U*dt;k.y+=dy/l*220*U*dt;}
+    if(l<20*U){
+      k.life=0;
+      if(G.sp.reduce((s,p)=>s+(Math.pow(3,p.tier+1)-1)/2,0)<26){G.sp.push({tier:2,cd:.3,hit:false,x:G.px,y:G.py});G.toast={t:0,dur:1.8,text:'SIERPINSKI SHIELD'};}
+      else G.toast={t:0,dur:1.4,text:'SHIELD FULL'};
+      burst(G.px,G.py,'#6fb7ff',16,180);
+    }
+  }
+  G.tok=G.tok.filter(k=>k.life>0);
+
+  // --- waves
+  if(G.delay>0)G.delay-=dt;
+  else if(G.queue.length){
+    G.spawnT-=dt;
+    if(G.spawnT<=0&&G.en.length<40){spawn(G.queue.shift());G.spawnT=Math.max(.35,.75-.1*Math.floor((G.wave-1)/4));}
+  }else if(!G.en.length&&!G.clearing){G.clearing=true;G.nextIn=2;G.energy=Math.min(100,G.energy+20);
+    if(G.wave%3===0)G.tok.push({x:rnd(60,W-60),y:rnd(H*.3,H*.6),life:14});}
+  if(G.clearing){G.nextIn-=dt;if(G.nextIn<=0)nextWave();}
+
+  if(G.comboT>0){G.comboT-=dt;if(G.comboT<=0)G.combo=1;}
+  if(G.banner){G.banner.t+=dt;if(G.banner.t>G.banner.dur)G.banner=null;}
+  if(G.toast){G.toast.t+=dt;if(G.toast.t>G.toast.dur)G.toast=null;}
+  updateFx(dt);
+}
+
+/* ---------- render ---------- */
+function bg(t){
+  ctx.fillStyle='#070a18'; ctx.fillRect(0,0,W,H);
+  const cx=W/2,cy=H/2,ph=(t*.14)%1,rot=-Math.PI/2+t*.03;
+  ctx.lineWidth=1.2;
+  for(let k=0;k<11;k++){
+    const s=14*U*Math.pow(2,k-ph); let a=.16; if(k===0)a*=(1-ph);
+    ctx.strokeStyle='rgba(80,110,255,'+a+')';
+    ctx.beginPath(); poly(cx,cy,s,rot,3,0); ctx.stroke();
+    ctx.beginPath(); poly(cx,cy,s*.5,rot+Math.PI,3,0); ctx.stroke();
+  }
+}
+function wrap(text,maxW){
+  const words=text.split(' '),lines=[];let cur='';
+  for(const w of words){const t=cur?cur+' '+w:w;if(ctx.measureText(t).width>maxW&&cur){lines.push(cur);cur=w;}else cur=t;}
+  if(cur)lines.push(cur); return lines;
+}
+function render(){
+  bgT=G?G.t:bgT+1/60;
+  bg(bgT);
+  if(!G)return;
+  ctx.save();
+  if(G.shake>0)ctx.translate(rnd(-G.shake,G.shake)*.5,rnd(-G.shake,G.shake)*.5);
+
+  ctx.globalCompositeOperation='lighter';
+  // rings
+  ctx.lineWidth=2*U;
+  for(const g of G.rings){
+    const a=.85*(1-.5*g.r/g.max);
+    ctx.strokeStyle=['rgba(255,200,87,','rgba(255,95,168,','rgba(178,140,255,','rgba(78,224,255,'][g.gen]+a+')';
+    ctx.beginPath(); ctx.arc(g.x,g.y,g.r,0,TAU); ctx.stroke();
+  }
+  // shards
+  ctx.fillStyle='#8dffb8';
+  for(const s of G.sh){
+    if(s.life<2&&((s.life*10)|0)%2)continue;
+    ctx.beginPath(); poly(s.x,s.y,6*U,G.t*3,3,0); ctx.fill();
+  }
+  // shield tokens and shield pieces (each piece contains copies of itself)
+  ctx.lineWidth=1.8*U;
+  for(const k of G.tok){
+    if(k.life<2&&((k.life*10)|0)%2)continue;
+    ctx.strokeStyle='#6fb7ff'; ctx.beginPath(); poly(k.x,k.y,10*U,G.t*1.5,3,1); ctx.stroke();
+  }
+  for(let i=0;i<G.sp.length;i++){
+    const p=G.sp[i],r=(6+p.tier*5)*U;
+    ctx.globalAlpha=p.cd>0?.5:1;
+    ctx.fillStyle='rgba(111,183,255,.18)'; ctx.beginPath(); poly(p.x,p.y,r,G.t*2+i,3,0); ctx.fill();
+    ctx.strokeStyle='#6fb7ff'; ctx.beginPath(); poly(p.x,p.y,r,G.t*2+i,3,p.tier); ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  // enemies: one stroked path per shape, containing its own recursion
+  ctx.lineWidth=1.7*U; ctx.lineJoin='round';
+  for(const e of G.en){
+    const c=e.flash>0?'#ffffff':colOf(e);
+    ctx.globalAlpha=e.inv>0?.55:1;
+    ctx.fillStyle=c; ctx.globalAlpha*=.13;
+    ctx.beginPath(); poly(e.x,e.y,e.r,e.rot,e.sides,0); ctx.fill();
+    ctx.globalAlpha=e.inv>0?.55:1;
+    ctx.strokeStyle=c;
+    ctx.beginPath(); poly(e.x,e.y,e.r,e.rot,e.sides,e.depth); ctx.stroke();
+    if(e.boss){
+      ctx.globalAlpha=1; ctx.fillStyle='#b28cff'; ctx.fillRect(e.x-30*U,e.y-e.r-14*U,60*U*(e.hp/6),4*U);
+    }
+  }
+  ctx.globalAlpha=1;
+  // bullets
+  ctx.lineWidth=2.6*U; ctx.lineCap='round';
+  for(const b of G.bullets){
+    const dx=Math.cos(b.a)*16*U,dy=Math.sin(b.a)*16*U;
+    ctx.strokeStyle=b.gen===0?'#c8fff0':'#7dffb2';
+    ctx.beginPath(); ctx.moveTo(b.x-dx,b.y-dy); ctx.lineTo(b.x,b.y); ctx.stroke();
+  }
+  // particles
+  for(const p of G.parts){
+    ctx.globalAlpha=Math.max(0,p.life/p.max); ctx.fillStyle=p.c;
+    ctx.fillRect(p.x-p.s/2,p.y-p.s/2,p.s,p.s);
+  }
+  ctx.globalAlpha=1;
+  // player: a Seed whose own fractal depth equals your Recursion Depth
+  if(state==='play'&&!(G.inv>0&&((G.t*20)|0)%2)){
+    ctx.strokeStyle='#7dffb2'; ctx.lineWidth=1.8*U;
+    ctx.beginPath(); poly(G.px,G.py,16*U,G.ang,3,Math.min(G.branch,3)); ctx.stroke();
+    ctx.fillStyle='rgba(125,255,178,.18)';
+    ctx.beginPath(); poly(G.px,G.py,16*U,G.ang,3,0); ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+  ctx.restore();
+
+  // joystick
+  if(ptr&&state==='play'){
+    ctx.strokeStyle='rgba(180,210,255,.25)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(ptr.ox,ptr.oy,70*U,0,TAU); ctx.stroke();
+    const dx=ptr.x-ptr.ox,dy=ptr.y-ptr.oy,l=Math.hypot(dx,dy),k=l>70*U?70*U/l:1;
+    ctx.fillStyle='rgba(180,210,255,.3)';
+    ctx.beginPath(); ctx.arc(ptr.ox+dx*k,ptr.oy+dy*k,20*U,0,TAU); ctx.fill();
+  }
+  if(G.flash>0){ctx.fillStyle='rgba(200,240,255,'+(G.flash/.35*.35)+')';ctx.fillRect(0,0,W,H);}
+  if(state==='play')hud();
+}
+function hud(){
+  const pad=14*U,fs=14*U;
+  ctx.font='700 '+fs+'px system-ui,sans-serif'; ctx.textBaseline='top';
+  // hp
+  ctx.lineWidth=1.6;
+  for(let i=0;i<5;i++){
+    ctx.beginPath(); poly(pad+9*U+i*22*U,pad+8*U,8*U,-Math.PI/2,3,0);
+    if(i<G.hp){ctx.fillStyle='#ff6b8a';ctx.fill();}
+    else{ctx.strokeStyle='rgba(255,107,138,.35)';ctx.stroke();}
+  }
+  ctx.fillStyle='#cfe3ff'; ctx.textAlign='left';
+  ctx.fillText('SCORE '+G.score,pad,pad+24*U);
+  ctx.textAlign='center'; ctx.fillText('WAVE '+G.wave,W/2,pad);
+  ctx.textAlign='right'; ctx.fillStyle='#7dffb2';
+  ctx.fillText('DEPTH '+G.branch+(G.branch>=4?' MAX':''),W-pad,pad);
+  if(G.sp.length){ctx.fillStyle='#6fb7ff';ctx.fillText('SHIELD '+G.sp.reduce((s,p)=>s+(Math.pow(3,p.tier+1)-1)/2,0),W-pad,pad+34*U);}
+  // shard progress
+  const bw=90*U,bx=W-pad-bw,by=pad+22*U;
+  ctx.fillStyle='rgba(125,255,178,.2)'; ctx.fillRect(bx,by,bw,4*U);
+  ctx.fillStyle='#7dffb2'; ctx.fillRect(bx,by,bw*G.shards/G.need,4*U);
+  if(G.combo>1.05){ctx.textAlign='left';ctx.fillStyle='#ffc857';ctx.fillText('x'+G.combo.toFixed(1)+' COMBO',pad,pad+44*U);}
+  // nova button fill
+  novaBtn.style.setProperty('--p',G.energy+'%');
+  novaBtn.classList.toggle('ready',G.energy>=100);
+  // banner
+  if(G.banner){
+    const b=G.banner,k=b.t/b.dur,a=k<.1?k/.1:k>.8?(1-k)/.2:1;
+    ctx.globalAlpha=Math.max(0,a); ctx.textAlign='center';
+    ctx.fillStyle='#ffffff'; ctx.font='800 '+(22*U)+'px system-ui,sans-serif'; ctx.fillText(b.title,W/2,H*.16);
+    ctx.fillStyle='#9fb7e8'; ctx.font='500 '+(14*U)+'px system-ui,sans-serif';
+    const ls=wrap(b.text,Math.min(W*.86,520));
+    ls.forEach((l,i)=>ctx.fillText(l,W/2,H*.16+34*U+i*20*U));
+    ctx.globalAlpha=1;
+  }
+  if(G.toast){
+    const t=G.toast,k=t.t/t.dur; ctx.globalAlpha=Math.max(0,1-k); ctx.textAlign='center';
+    ctx.fillStyle='#7dffb2'; ctx.font='800 '+(20*U)+'px system-ui,sans-serif'; ctx.fillText(t.text,W/2,H*.36-k*20);
+    ctx.globalAlpha=1;
+  }
+}
+
+/* ---------- loop ---------- */
+let last=0;
+function frame(ts){
+  const dt=Math.min(.033,(ts-last)/1000||0); last=ts;
+  if(G){if(state==='play')update(dt);else updateFx(dt);}
+  render();
+  requestAnimationFrame(frame);
+}
+window.__ff={start,nova,get G(){return G},get state(){return state},update,render};
+showMenu();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
