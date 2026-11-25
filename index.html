@@ -12,6 +12,9 @@
     border:2px solid #4ee0ff66;color:#bfeaff;font-weight:800;letter-spacing:.1em;font-size:13px;--p:0%;
     background:linear-gradient(to top,#4ee0ff77 var(--p),#0b1230dd var(--p));touch-action:manipulation}
   #nova.ready{border-color:#fff;color:#fff;box-shadow:0 0 22px #4ee0ffcc;animation:pulse .8s infinite alternate}
+  #mode{position:fixed;left:16px;bottom:20px;width:82px;height:82px;border-radius:50%;display:none;font-weight:800;letter-spacing:.08em;
+    font-size:12px;background:#0b1230dd;border:2px solid #7dffb2aa;color:#7dffb2;touch-action:manipulation}
+  #mode.focus{border-color:#ffc857cc;color:#ffc857}
   @keyframes pulse{to{box-shadow:0 0 34px #b28cffee}}
   #screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;
     background:radial-gradient(#070a18aa,#070a18ee);overflow:auto}
@@ -32,6 +35,7 @@
 <body>
 <canvas id="c"></canvas>
 <button id="nova">NOVA</button>
+<button id="mode">BRANCH</button>
 <div id="screen"><div class="panel" id="panel"></div></div>
 
 <script>
@@ -39,7 +43,7 @@
 'use strict';
 const TAU=Math.PI*2, F=0.42;
 const cv=document.getElementById('c'), ctx=cv.getContext('2d');
-const screenEl=document.getElementById('screen'), panel=document.getElementById('panel'), novaBtn=document.getElementById('nova');
+const screenEl=document.getElementById('screen'), panel=document.getElementById('panel'), novaBtn=document.getElementById('nova'), modeBtn=document.getElementById('mode');
 let W=0,H=0,DPR=1,U=1;
 function resize(){
   DPR=Math.min(window.devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
@@ -74,7 +78,7 @@ function poly(x,y,r,rot,n,d){
 /* ---------- entities ---------- */
 const rOf=(d,boss)=>(boss?78:12+d*10)*U;
 function mk(sides,depth,x,y,vx,vy,boss){
-  return {sides,depth,x,y,vx,vy,r:rOf(depth,boss),rot:rnd(0,TAU),spin:rnd(-1.6,1.6),boss:!!boss,hp:boss?6:1,inv:0,flash:0,ringT:0,shT:0,dead:false};
+  return {sides,depth,x,y,vx,vy,r:rOf(depth,boss),rot:rnd(0,TAU),spin:rnd(-1.6,1.6),boss:!!boss,hp:boss?6:1,inv:0,flash:0,ringT:0,shT:0,fam:0,top:depth,gt:0,dead:false};
 }
 function burst(x,y,c,n,sp){
   if(G.parts.length>700)return;
@@ -85,7 +89,13 @@ function dropShard(e){G.sh.push({x:e.x,y:e.y,vx:rnd(-50,50)*U,vy:rnd(-50,50)*U,l
 const TYPES=['shield','shield','mirror','mirror','hilbert'];
 const TCOL={shield:'#6fb7ff',mirror:'#7dffb2',hilbert:'#ffc857'};
 const pickType=()=>TYPES[(Math.random()*TYPES.length)|0];
-function dropTok(e){G.tok.push({x:e.x,y:e.y,life:12,type:pickType()});}
+function dropPair(x,y,life){
+  const a=pickType(); let b=pickType(),g=0; while(b===a&&g++<30)b=pickType();
+  const id=++G.famN,ang=rnd(0,TAU),d=40*U,cl=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+  for(const [t,s] of [[a,1],[b,-1]])
+    G.tok.push({x:cl(x+Math.cos(ang)*d*s,24*U,W-24*U),y:cl(y+Math.sin(ang)*d*s,60*U,H-24*U),life:life||12,type:t,fork:id});
+}
+function dropTok(e){dropPair(e.x,e.y,12);}
 function hil(n,d){let x=0,y=0,t=d;for(let s=1;s<n;s*=2){const rx=(t>>1)&1,ry=(t^rx)&1;if(ry===0){if(rx===1){x=s-1-x;y=s-1-y;}const m=x;x=y;y=m;}x+=s*rx;y+=s*ry;t=t>>2;}return[x,y];}
 function startHil(){
   const n=8,top=50*U,cw=W/n,ch=(H-top)/n,pts=[];
@@ -93,30 +103,39 @@ function startHil(){
   G.hil={i:0,pts,x:pts[0][0],y:pts[0][1]};
 }
 
-function hit(e){
+function hit(e,foc){
   if(e.inv>0||e.dead)return;
-  e.hp--; e.flash=.09;
+  e.hp-=(foc&&e.boss)?2:1; e.flash=.09;
   if(e.hp>0){burst(e.x,e.y,colOf(e),6,130);G.shake=Math.max(G.shake,3);return;}
-  kill(e);
+  kill(e,foc);
 }
-function kill(e){
+function kill(e,foc){
   e.dead=true; G.kills++;
   G.combo=Math.min(5,G.combo+.1); G.comboT=2.2;
   G.score+=Math.round((e.depth+1)*10*G.combo*(e.boss?5:1));
   burst(e.x,e.y,colOf(e),8+e.depth*5,170+e.depth*40);
   G.shake=Math.max(G.shake,e.boss?14:3+e.depth*1.5);
-  if(e.depth>0){
+  if(e.depth>0&&foc){
+    // FOCUS: the base case. The shape ends here with no copies, but pays little.
+    if(Math.random()<.35)dropShard(e);
+  }else if(e.depth>0){
     // RECURSION: a shape of depth d breaks into copies of itself at depth d-1
     const k=e.sides===3?3:2, base=rnd(0,TAU);
     for(let i=0;i<k;i++){
       const a=base+i*TAU/k,cx=Math.cos(a),cy=Math.sin(a);
       const c=mk(e.sides,e.depth-1,e.x+cx*e.r*.55,e.y+cy*e.r*.55,e.vx*.5+cx*170*U,e.vy*.5+cy*170*U,false);
-      c.inv=.2; G.en.push(c);
+      c.inv=.2; c.fam=e.fam; c.top=e.boss?e.depth-1:e.top; G.en.push(c);
     }
     if(Math.random()<.25)dropShard(e);
   }else{
     dropShard(e);
     if(Math.random()<.07)dropTok(e);
+  }
+  // FAMILY BONUS: finish every descendant of one starting shape
+  if(e.fam&&e.depth===0&&!G.en.some(x=>!x.dead&&x.fam===e.fam)){
+    const b=Math.round(25*(e.top+1)*G.combo); G.score+=b;
+    G.toast={t:0,dur:1.6,text:'FAMILY CLEARED +'+b};
+    dropShard(e); dropShard(e);
   }
 }
 
@@ -141,16 +160,26 @@ function nextWave(){
 function spawn(sp){
   const m=50*U; let x,y; const side=(Math.random()*4)|0;
   if(side===0){x=rnd(0,W);y=-m}else if(side===1){x=W+m;y=rnd(0,H)}else if(side===2){x=rnd(0,W);y=H+m}else{x=-m;y=rnd(0,H)}
-  G.en.push(mk(sp.s,sp.d,x,y,0,0,sp.boss));
+  const e=mk(sp.s,sp.d,x,y,0,0,sp.boss); e.fam=++G.famN; e.top=sp.boss?3:sp.d; G.en.push(e);
 }
 
 /* ---------- weapon: every bullet recursively branches ---------- */
 function fire(){
-  const a=G.ang;
-  G.bullets.push({x:G.px+Math.cos(a)*16*U,y:G.py+Math.sin(a)*16*U,a,gen:G.branch,age:0,life:1.0});
+  const a=G.ang,x=G.px+Math.cos(a)*16*U,y=G.py+Math.sin(a)*16*U;
+  if(G.mode==='focus')G.bullets.push({x,y,a,gen:0,age:0,life:1.2,foc:true,sp:780});
+  else G.bullets.push({x,y,a,gen:G.branch,age:0,life:1.0});
+}
+function toggleMode(){
+  if(state!=='play')return;
+  G.mode=G.mode==='focus'?'branch':'focus'; syncMode();
+}
+function syncMode(){
+  modeBtn.textContent=G.mode==='focus'?'FOCUS':'BRANCH';
+  modeBtn.classList.toggle('focus',G.mode==='focus');
 }
 function stepBullet(b,dt){
-  b.x+=Math.cos(b.a)*560*U*dt; b.y+=Math.sin(b.a)*560*U*dt; b.age+=dt; b.life-=dt;
+  const v=(b.sp||560)*U;
+  b.x+=Math.cos(b.a)*v*dt; b.y+=Math.sin(b.a)*v*dt; b.age+=dt; b.life-=dt;
   if(b.gen>0&&b.age>=.09){
     const sp=.36*Math.pow(.78,G.branch-b.gen);
     G.bullets.push({x:b.x,y:b.y,a:b.a-sp,gen:b.gen-1,age:0,life:b.life});
@@ -187,12 +216,12 @@ function stepRing(g,dt){
 function start(){
   G={t:0,score:0,wave:0,hp:5,energy:0,branch:1,shards:0,need:8,combo:1,comboT:0,
      px:W/2,py:H*.68,pvx:0,pvy:0,ang:-Math.PI/2,inv:0,fireT:.3,shake:0,flash:0,kills:0,
-     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
-  state='play'; screenEl.style.display='none'; novaBtn.style.display='block';
+     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mode:'branch',famN:0,mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
+  state='play'; screenEl.style.display='none'; novaBtn.style.display='block'; modeBtn.style.display='block'; syncMode();
   nextWave();
 }
 function gameOver(){
-  state='over'; novaBtn.style.display='none';
+  state='over'; novaBtn.style.display='none'; modeBtn.style.display='none';
   burst(G.px,G.py,'#ffffff',60,300);
   const nb=G.score>best; if(nb){best=G.score;try{localStorage.setItem('ff_best',String(best))}catch(e){}}
   setTimeout(()=>{
@@ -213,19 +242,23 @@ function showMenu(){
    '<ul><li>Hit a shape and it splits into copies of itself: Depth 3 → 2 → 1 → 0.</li>'+
    '<li>Your shots branch too: every bullet splits in two, again and again. Collect <b>shards</b> to raise your Recursion Depth.</li>'+
    '<li><b>NOVA</b>: a ring that spawns rings that spawn rings.</li>'+
-   '<li>Power-ups drop now and then. Blue: a <b>Sierpinski shield</b> that splits into smaller shields when hit. Green: <b>Mirror Seed</b> drones, each orbited by a smaller drone. Amber: a <b>Hilbert drone</b> that sweeps the whole arena.</li>'+
+   '<li>Power-ups drop now and then. Blue: a <b>Sierpinski shield</b> that splits into smaller shields when hit. Green: <b>Mirror Seed</b> drones, each orbited by a smaller drone. Amber: a <b>Hilbert drone</b> that sweeps the whole arena. Power-ups come in pairs joined by a dotted line: take one and the other vanishes.</li>'+
+   '<li><b>Branch or Focus</b> (button, or F): Branch splits shots and shapes into swarms for big scores. Focus fires one heavy shot that ends a shape with no copies, but pays little.</li>'+
+   '<li>A shape left alone for a few seconds <b>grows back</b> one depth. Wipe out every copy from one starting shape for a <b>family bonus</b>.</li>'+
    '<li>Drag to move (mouse, WASD or arrows also work). You aim and fire on your own. Space or the button fires Nova.</li></ul>'+
    '<button class="go" id="go">BEGIN</button>'+(best?'<p class="stat" style="margin-top:14px">Best <b>'+best+'</b></p>':'');
   screenEl.style.display='flex';
 }
 panel.addEventListener('click',e=>{if(e.target.id==='go')start();});
 novaBtn.addEventListener('pointerdown',e=>{e.stopPropagation();nova();});
+modeBtn.addEventListener('pointerdown',e=>{e.stopPropagation();toggleMode();});
 
 /* ---------- input ---------- */
 const keys={}; let ptr=null, mouse={x:0,y:0,on:false};
 addEventListener('keydown',e=>{
   keys[e.code]=1;
   if(e.code==='Space'){e.preventDefault();nova();}
+  if(e.code==='KeyF')toggleMode();
   if(e.code==='Enter'&&state!=='play'&&screenEl.style.display!=='none')start();
 });
 addEventListener('keyup',e=>{keys[e.code]=0;});
@@ -273,7 +306,7 @@ function update(dt){
     let da=ta-G.ang; while(da>Math.PI)da-=TAU; while(da<-Math.PI)da+=TAU;
     G.ang+=da*Math.min(1,dt*18);
     G.fireT-=dt;
-    if(G.fireT<=0){fire();G.fireT=.30-.02*G.branch;}
+    if(G.fireT<=0){fire();G.fireT=G.mode==='focus'?.36:.30-.02*G.branch;}
   }
 
   // --- bullets
@@ -287,7 +320,7 @@ function update(dt){
       const rr=e.r*1.05+3;
       if((e.x-b.x)**2+(e.y-b.y)**2<rr*rr){
         if(e.inv>0)continue;
-        hit(e); b.life=0; break;
+        hit(e,b.foc); b.life=0; break;
       }
     }
   }
@@ -308,6 +341,11 @@ function update(dt){
     e.vx+=(dx/l*s-e.vx)*dt*.9; e.vy+=(dy/l*s-e.vy)*dt*.9;
     e.x+=e.vx*dt; e.y+=e.vy*dt; e.rot+=e.spin*dt;
     if(e.inv>0)e.inv-=dt; if(e.flash>0)e.flash-=dt; if(e.ringT>0)e.ringT-=dt; if(e.shT>0)e.shT-=dt;
+    // REGROWTH: a shape left alone grows back one depth
+    if(!e.boss&&e.depth<e.top){
+      e.gt+=dt;
+      if(e.gt>=6){e.gt=0;e.depth++;e.r=rOf(e.depth,false);e.flash=.2;e.inv=.15;burst(e.x,e.y,colOf(e),14,140);}
+    }
     let blocked=false;
     if(e.shT<=0)for(const p of G.sp){
       if(p.cd>0||p.hit)continue;
@@ -358,9 +396,10 @@ function update(dt){
   for(const k of G.tok){
     k.life-=dt;
     const dx=G.px-k.x,dy=G.py-k.y,l=Math.hypot(dx,dy)||1;
-    if(l<90*U){k.x+=dx/l*220*U*dt;k.y+=dy/l*220*U*dt;}
+    if(!k.fork&&l<90*U){k.x+=dx/l*220*U*dt;k.y+=dy/l*220*U*dt;}
     if(l<20*U){
       k.life=0;
+      if(k.fork)for(const o of G.tok)if(o.fork===k.fork)o.life=0;
       if(k.type==='mirror'){
         G.mirror=Math.min(3,G.mirror+1); G.mirrorT=30;
         G.toast={t:0,dur:1.8,text:G.mirror>1?'MIRROR SEED DEPTH '+G.mirror:'MIRROR SEED'};
@@ -414,7 +453,7 @@ function update(dt){
     G.spawnT-=dt;
     if(G.spawnT<=0&&G.en.length<40){spawn(G.queue.shift());G.spawnT=Math.max(.35,.75-.1*Math.floor((G.wave-1)/4));}
   }else if(!G.en.length&&!G.clearing){G.clearing=true;G.nextIn=2;G.energy=Math.min(100,G.energy+20);
-    if(G.wave%3===0)G.tok.push({x:rnd(60,W-60),y:rnd(H*.3,H*.6),life:14,type:pickType()});}
+    if(G.wave%3===0)dropPair(rnd(90,W-90),rnd(H*.3,H*.6),14);}
   if(G.clearing){G.nextIn-=dt;if(G.nextIn<=0)nextWave();}
 
   if(G.comboT>0){G.comboT-=dt;if(G.comboT<=0)G.combo=1;}
@@ -480,6 +519,10 @@ function render(){
   // shield tokens and shield pieces (each piece contains copies of itself)
   ctx.lineWidth=1.8*U;
   for(const k of G.tok){
+    if(k.fork){
+      const o=G.tok.find(q=>q!==k&&q.fork===k.fork);
+      if(o){ctx.setLineDash([4,6]);ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(k.x,k.y);ctx.lineTo(o.x,o.y);ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1.8*U;}
+    }
     if(k.life<2&&((k.life*10)|0)%2)continue;
     ctx.strokeStyle=TCOL[k.type]||'#6fb7ff'; ctx.beginPath(); poly(k.x,k.y,10*U,G.t*1.5,k.type==='hilbert'?4:3,1); ctx.stroke();
   }
@@ -500,6 +543,11 @@ function render(){
     ctx.globalAlpha=e.inv>0?.55:1;
     ctx.strokeStyle=c;
     ctx.beginPath(); poly(e.x,e.y,e.r,e.rot,e.sides,e.depth); ctx.stroke();
+    if(!e.boss&&e.depth<e.top&&e.gt>1.5){
+      ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.lineWidth=2*U;
+      ctx.beginPath(); ctx.arc(e.x,e.y,e.r*1.45,-Math.PI/2,-Math.PI/2+TAU*e.gt/6); ctx.stroke();
+      ctx.lineWidth=1.7*U;
+    }
     if(e.boss){
       ctx.globalAlpha=1; ctx.fillStyle='#b28cff'; ctx.fillRect(e.x-30*U,e.y-e.r-14*U,60*U*(e.hp/6),4*U);
     }
@@ -509,7 +557,8 @@ function render(){
   ctx.lineWidth=2.6*U; ctx.lineCap='round';
   for(const b of G.bullets){
     const dx=Math.cos(b.a)*16*U,dy=Math.sin(b.a)*16*U;
-    ctx.strokeStyle=b.gen===0?'#c8fff0':'#7dffb2';
+    if(b.foc){ctx.lineWidth=4.4*U;ctx.strokeStyle='#ffe29a';}
+    else{ctx.lineWidth=2.6*U;ctx.strokeStyle=b.gen===0?'#c8fff0':'#7dffb2';}
     ctx.beginPath(); ctx.moveTo(b.x-dx,b.y-dy); ctx.lineTo(b.x,b.y); ctx.stroke();
   }
   // particles
@@ -520,8 +569,8 @@ function render(){
   ctx.globalAlpha=1;
   // player: a Seed whose own fractal depth equals your Recursion Depth
   if(state==='play'&&!(G.inv>0&&((G.t*20)|0)%2)){
-    ctx.strokeStyle='#7dffb2'; ctx.lineWidth=1.8*U;
-    ctx.beginPath(); poly(G.px,G.py,16*U,G.ang,3,Math.min(G.branch,3)); ctx.stroke();
+    ctx.strokeStyle=G.mode==='focus'?'#ffc857':'#7dffb2'; ctx.lineWidth=1.8*U;
+    ctx.beginPath(); poly(G.px,G.py,16*U,G.ang,3,G.mode==='focus'?0:Math.min(G.branch,3)); ctx.stroke();
     ctx.fillStyle='rgba(125,255,178,.18)';
     ctx.beginPath(); poly(G.px,G.py,16*U,G.ang,3,0); ctx.fill();
   }
@@ -589,7 +638,7 @@ function frame(ts){
   render();
   requestAnimationFrame(frame);
 }
-window.__ff={start,nova,get G(){return G},get state(){return state},update,render};
+window.__ff={toggle:toggleMode,start,nova,get G(){return G},get state(){return state},update,render};
 showMenu();
 requestAnimationFrame(frame);
 })();
