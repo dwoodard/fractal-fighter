@@ -39,6 +39,20 @@
   button.go{border:0;border-radius:999px;padding:14px 40px;font-size:16px;font-weight:800;letter-spacing:.12em;color:#070a18;
     background:linear-gradient(90deg,#4ee0ff,#b28cff);touch-action:manipulation}
   .stat{font-size:15px;margin:4px 0;color:#cfe0ff}
+  .logo{display:block;margin:0 auto 10px;animation:float 4s ease-in-out infinite}
+  @keyframes float{50%{transform:translateY(-4px)}}
+  .row{display:flex;gap:10px;justify-content:center;margin:14px 0 0;flex-wrap:wrap}
+  button.sec{border:1px solid #4a5fa8;background:#0d1533;color:#cfe0ff;border-radius:999px;padding:11px 20px;font-size:13px;font-weight:700;letter-spacing:.08em;touch-action:manipulation}
+  button.go.sm{padding:10px 18px;font-size:13px}
+  button.sec.sm{padding:8px 14px;font-size:12px}
+  button.tog{border:1px solid #4a5fa8;background:#0d1533;color:#9fb3e0;border-radius:999px;padding:8px 16px;font-weight:800;font-size:12px}
+  button.tog.on{background:#1b3a5f;color:#7dffb2;border-color:#7dffb2}
+  .card{background:#0b1230cc;border:1px solid #243060;border-radius:14px;padding:12px 14px;margin:12px 0;text-align:left;font-size:13px}
+  .line{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;color:#9fb3e0}
+  .line b{color:#fff;font-weight:600;text-align:right}
+  .card.log p{margin:6px 0;color:#9fb3e0;line-height:1.4}
+  .card.log i{color:#4ee0ff;font-style:normal;font-weight:700;margin-right:4px}
+  .ver{margin:16px 0 0;font-size:11px;color:#5e6f9f;letter-spacing:.1em}
 </style>
 </head>
 <body>
@@ -239,11 +253,90 @@ function gameOver(){
       '<p class="story">Somewhere inside the wreckage, a smaller Seed is already forming. It remembers you.</p>'+
       '<p class="stat">Score <b>'+G.score+'</b> &nbsp;·&nbsp; Wave <b>'+G.wave+'</b> &nbsp;·&nbsp; Shapes unmade <b>'+G.kills+'</b></p>'+
       '<p class="stat">'+(nb?'<b>New best!</b>':'Best <b>'+best+'</b>')+'</p><br>'+
-      '<button class="go" id="go">FIGHT AGAIN</button>';
+      '<button class="go" id="go">FIGHT AGAIN</button><div class="row"><button class="sec" data-act="splash">MENU</button></div>';
     screenEl.style.display='flex';
   },800);
 }
-function showMenu(){
+/* ---------- versioning, settings and splash ---------- */
+const APP_VERSION='1.4.0', BUILD_DATE='2026-11-25';
+const CHANGELOG=[
+ {v:'1.4.0',t:'Splash screen, settings, update checker, installable app'},
+ {v:'1.3.0',t:'Branch or Focus weapons, regrowth, family bonus, paired power-ups'},
+ {v:'1.2.0',t:'Helper power-ups: Mirror Seed and Hilbert Drone'},
+ {v:'1.1.0',t:'Sierpinski Shield power-up'},
+ {v:'1.0.0',t:'First release: splitting shapes, branching shots, Nova'}
+];
+const SET={shake:true};
+try{const s=JSON.parse(localStorage.getItem('ff_set')||'{}');if(s.shake===false)SET.shake=false;}catch(e){}
+const saveSet=()=>{try{localStorage.setItem('ff_set',JSON.stringify(SET))}catch(e){}};
+let lastCheck=0,latest=null,ustatus='',resetArm=false;
+try{lastCheck=+localStorage.getItem('ff_lastcheck')||0}catch(e){}
+const vcmp=(a,b)=>{const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);
+  for(let i=0;i<3;i++){const d=(x[i]||0)-(y[i]||0);if(d)return d;}return 0;};
+const hasUpdate=()=>!!latest&&vcmp(latest.version,APP_VERSION)>0;
+
+function logoSVG(){
+  const out=[];
+  (function t(ax,ay,bx,by,cx,cy,d){
+    if(d===0){out.push([ax,ay,bx,by,cx,cy]);return;}
+    const mx=(ax+bx)/2,my=(ay+by)/2,nx=(bx+cx)/2,ny=(by+cy)/2,px=(cx+ax)/2,py=(cy+ay)/2;
+    t(ax,ay,mx,my,px,py,d-1);t(mx,my,bx,by,nx,ny,d-1);t(px,py,nx,ny,cx,cy,d-1);
+  })(50,6,4,86,96,86,4);
+  const A=[78,224,255],B=[178,140,255],C=[255,95,168];
+  const mix=(p,q,k)=>p.map((v,i)=>Math.round(v+(q[i]-v)*k));
+  const col=y=>{const k=(y-6)/80;const c=k<.5?mix(A,B,k*2):mix(B,C,(k-.5)*2);return 'rgb('+c.join(',')+')';};
+  return '<svg class="logo" viewBox="0 0 100 92" width="132" height="122" aria-hidden="true">'+
+    out.map(p=>'<polygon points="'+p.join(' ')+'" fill="'+col((p[1]+p[3]+p[5])/3)+'"/>').join('')+'</svg>';
+}
+function showSplash(){
+  state='menu';
+  panel.innerHTML='<div class="logo-wrap">'+logoSVG()+'</div><h1>FRACTAL<br>FIGHT</h1>'+
+    '<p class="sub">a geometric game of recursion</p>'+
+    '<button class="go" id="go">PLAY</button>'+
+    '<div class="row"><button class="sec" data-act="how">HOW TO PLAY</button><button class="sec" data-act="settings">SETTINGS</button></div>'+
+    (hasUpdate()?'<p class="stat" data-act="settings" style="color:#ffc857;margin-top:14px">Update available: v'+latest.version+'. Tap to update.</p>':'')+
+    (best?'<p class="stat" style="margin-top:14px">Best <b>'+best+'</b></p>':'')+
+    '<p class="ver">v'+APP_VERSION+'</p>';
+  screenEl.style.display='flex';
+}
+function showSettings(){
+  const ago=lastCheck?new Date(lastCheck).toLocaleString():'never';
+  panel.innerHTML='<h1 style="font-size:clamp(26px,7vw,36px)">SETTINGS</h1>'+
+    '<div class="card"><div class="line"><span>Installed</span><b>v'+APP_VERSION+'</b></div>'+
+    '<div class="line"><span>Built</span><b>'+BUILD_DATE+'</b></div>'+
+    '<div class="line"><span>Latest</span><b>'+(latest?'v'+latest.version:'unknown')+'</b></div>'+
+    '<div class="line"><span>Last checked</span><b>'+ago+'</b></div>'+
+    (ustatus?'<p class="stat" style="font-size:13px;color:#ffc857">'+ustatus+'</p>':'')+
+    (hasUpdate()?'<button class="go sm" data-act="apply">UPDATE TO v'+latest.version+'</button>'
+                :'<button class="go sm" data-act="check">CHECK FOR UPDATES</button>')+'</div>'+
+    '<div class="card"><div class="line"><span>Screen shake</span><button class="tog'+(SET.shake?' on':'')+'" data-act="shake">'+(SET.shake?'ON':'OFF')+'</button></div>'+
+    '<div class="line"><span>Best score</span><button class="sec sm" data-act="reset">'+(resetArm?'TAP AGAIN TO CONFIRM':'RESET')+'</button></div>'+
+    '<div class="line"><span>Cache</span><button class="sec sm" data-act="clear">CLEAR AND RELOAD</button></div></div>'+
+    '<div class="card log"><b>What\'s new</b>'+CHANGELOG.map(c=>'<p><i>v'+c.v+'</i>'+c.t+'</p>').join('')+'</div>'+
+    '<button class="sec" data-act="splash">BACK</button>';
+  screenEl.style.display='flex';
+}
+async function checkUpdate(silent){
+  if(!silent){ustatus='Checking…';showSettings();}
+  try{
+    const r=await fetch('version.json?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok)throw new Error('http '+r.status);
+    latest=await r.json(); lastCheck=Date.now();
+    try{localStorage.setItem('ff_lastcheck',String(lastCheck))}catch(e){}
+    ustatus=hasUpdate()?'Update available: v'+latest.version+(latest.notes?' · '+latest.notes:''):'You\'re up to date.';
+  }catch(e){ustatus=silent?'':'Couldn\'t reach the update server. Check your connection.';}
+  if(silent){if(screenEl.style.display!=='none'&&panel.querySelector('.logo-wrap'))showSplash();}
+  else showSettings();
+}
+async function applyUpdate(){
+  ustatus='Updating…';showSettings();
+  try{
+    if('caches' in window)for(const k of await caches.keys())await caches.delete(k);
+    if(navigator.serviceWorker)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();
+  }catch(e){}
+  location.replace(location.pathname+'?v='+Date.now());
+}
+function showHow(){
   panel.innerHTML='<h1>FRACTAL<br>FIGHT</h1><p class="sub">a geometric game of recursion</p>'+
    '<p class="story">Before the first shape, there was the <b>Seed</b>: a form that contained a smaller copy of itself, forever. '+
    'The Void could not bear a thing that remembers itself, so it sent the <b>Splitters</b>: shapes that shatter into smaller copies when wounded. '+
@@ -255,10 +348,24 @@ function showMenu(){
    '<li><b>Branch or Focus</b> (button, or F): Branch splits shots and shapes into swarms for big scores. Focus fires one heavy shot that ends a shape with no copies, but pays little.</li>'+
    '<li>A shape left alone for a few seconds <b>grows back</b> one depth. Wipe out every copy from one starting shape for a <b>family bonus</b>.</li>'+
    '<li>Drag to move (mouse, WASD or arrows also work). You aim and fire on your own. Space or the button fires Nova.</li></ul>'+
-   '<button class="go" id="go">BEGIN</button>'+(best?'<p class="stat" style="margin-top:14px">Best <b>'+best+'</b></p>':'');
+   '<button class="go" id="go">PLAY</button> <button class="sec" data-act="splash">BACK</button>';
   screenEl.style.display='flex';
 }
-panel.addEventListener('click',e=>{if(e.target.id==='go')start();});
+panel.addEventListener('click',e=>{
+  const t=e.target.closest('[data-act],#go'); if(!t)return;
+  if(t.id==='go'){start();return;}
+  const a=t.dataset.act;
+  if(a==='splash')showSplash();
+  else if(a==='how')showHow();
+  else if(a==='settings'){resetArm=false;showSettings();}
+  else if(a==='check')checkUpdate(false);
+  else if(a==='apply'||a==='clear')applyUpdate();
+  else if(a==='shake'){SET.shake=!SET.shake;saveSet();showSettings();}
+  else if(a==='reset'){
+    if(resetArm){best=0;try{localStorage.removeItem('ff_best')}catch(_){}resetArm=false;}else resetArm=true;
+    showSettings();
+  }
+});
 novaBtn.addEventListener('pointerdown',e=>{e.stopPropagation();nova();});
 modeBtn.addEventListener('pointerdown',e=>{e.stopPropagation();toggleMode();});
 
@@ -268,7 +375,7 @@ addEventListener('keydown',e=>{
   keys[e.code]=1;
   if(e.code==='Space'){e.preventDefault();nova();}
   if(e.code==='KeyF')toggleMode();
-  if(e.code==='Enter'&&state!=='play'&&screenEl.style.display!=='none')start();
+  if(e.code==='Enter'&&state!=='play'&&screenEl.style.display!=='none'&&document.getElementById('go'))start();
 });
 addEventListener('keyup',e=>{keys[e.code]=0;});
 cv.addEventListener('pointerdown',e=>{
@@ -493,7 +600,7 @@ function render(){
   bg(bgT);
   if(!G)return;
   ctx.save();
-  if(G.shake>0)ctx.translate(rnd(-G.shake,G.shake)*.5,rnd(-G.shake,G.shake)*.5);
+  if(G.shake>0&&SET.shake)ctx.translate(rnd(-G.shake,G.shake)*.5,rnd(-G.shake,G.shake)*.5);
 
   ctx.globalCompositeOperation='lighter';
   // rings
@@ -648,10 +755,13 @@ function frame(ts){
   requestAnimationFrame(frame);
 }
 window.__ff={toggle:toggleMode,start,nova,get G(){return G},get state(){return state},update,render};
-showMenu();
+showSplash();
 requestAnimationFrame(frame);
-if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-  addEventListener('load',()=>{try{navigator.serviceWorker.register('sw.js').catch(()=>{});}catch(e){}});
+if(location.protocol.startsWith('http')){
+  addEventListener('load',()=>{
+    try{if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js?v='+APP_VERSION).catch(()=>{});}catch(e){}
+    setTimeout(()=>checkUpdate(true),1200);
+  });
 }
 })();
 </script>

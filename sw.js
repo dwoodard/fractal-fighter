@@ -1,4 +1,7 @@
-const CACHE = 'fractal-fight-v1';
+// The page registers this file as sw.js?v=<app version>, so every release is a new worker
+// with its own cache, and the old cache is deleted when the new worker activates.
+const VERSION = new URL(self.location.href).searchParams.get('v') || '0';
+const CACHE = 'fractal-fight-v' + VERSION;
 const SHELL = [
   './',
   './index.html',
@@ -23,16 +26,19 @@ self.addEventListener('activate', e => {
 });
 
 // Network first, so a new deploy shows up on the next load; fall back to the cache when offline.
+// version.json is never cached, so the update checker always sees the live version.
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  if (url.pathname.endsWith('/version.json')) return;
+  const key = req.mode === 'navigate' ? new Request(url.origin + url.pathname) : req;
   e.respondWith(
     fetch(req)
       .then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy));
+        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(key, copy)); }
         return res;
       })
-      .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
+      .catch(() => caches.match(key).then(r => r || caches.match('./index.html')))
   );
 });
