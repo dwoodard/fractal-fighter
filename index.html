@@ -212,10 +212,21 @@ function stepBullet(b,dt){
 }
 
 /* ---------- Nova: a ring that spawns rings that spawn rings ---------- */
+// Nova levels up with total shards collected: more generations, more children per ring, wider reach.
+const NOVA=[
+  {gen:2,n:4,max:110},   // 21 rings
+  {gen:3,n:4,max:130},   // 85
+  {gen:3,n:5,max:150},   // 156
+  {gen:3,n:6,max:170},   // 259
+  {gen:4,n:4,max:190}    // 341
+];
+const NOVA_AT=[10,25,45,70];
+function novaLvl(){let l=1;for(const t of NOVA_AT)if(G.sTot>=t)l++;return l;}
 function nova(){
   if(state!=='play'||G.energy<100)return;
-  G.energy=0; G.flash=.35;
-  G.rings.push({x:G.px,y:G.py,r:8*U,v:380*U,max:140*U,gen:3,dead:false});
+  const L=novaLvl(),P=NOVA[L-1];
+  G.energy=0; G.flash=.25+L*.04; G.shake=Math.max(G.shake,4+L*2);
+  G.rings.push({x:G.px,y:G.py,r:8*U,v:380*U,max:P.max*U,gen:P.gen,n:P.n,dead:false});
 }
 function stepRing(g,dt){
   g.r+=g.v*dt;
@@ -223,8 +234,8 @@ function stepRing(g,dt){
     g.dead=true;
     if(g.gen>0){
       const o=rnd(0,TAU);
-      for(let i=0;i<5;i++){const a=o+i*TAU/5;
-        G.rings.push({x:g.x+Math.cos(a)*g.r,y:g.y+Math.sin(a)*g.r,r:3*U,v:g.v*.85,max:g.max*.5,gen:g.gen-1,dead:false});}
+      for(let i=0;i<g.n;i++){const a=o+i*TAU/g.n;
+        G.rings.push({x:g.x+Math.cos(a)*g.r,y:g.y+Math.sin(a)*g.r,r:3*U,v:g.v*.85,max:g.max*.5,gen:g.gen-1,n:g.n,dead:false});}
     }
     return;
   }
@@ -239,7 +250,7 @@ function stepRing(g,dt){
 function start(){
   G={t:0,score:0,wave:0,hp:5,energy:0,branch:1,shards:0,need:8,combo:1,comboT:0,
      px:W/2,py:H*.68,pvx:0,pvy:0,ang:-Math.PI/2,inv:0,fireT:.3,shake:0,flash:0,kills:0,
-     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mode:'branch',famN:0,magT:0,mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
+     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mode:'branch',famN:0,sTot:0,novaSeen:1,toast2:null,magT:0,mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
   state='play'; screenEl.style.display='none'; novaBtn.style.display='block'; modeBtn.style.display='block'; syncMode();
   nextWave();
 }
@@ -258,8 +269,9 @@ function gameOver(){
   },800);
 }
 /* ---------- versioning, settings and splash ---------- */
-const APP_VERSION='1.5.1', BUILD_DATE='2026-11-25';
+const APP_VERSION='1.6.0', BUILD_DATE='2026-11-25';
 const CHANGELOG=[
+ {v:'1.6.0',t:'Nova levels up as you collect shards: more rings, wider reach'},
  {v:'1.5.1',t:'Clean view: fainter, smaller add-ons so your ship stays easy to see (Settings)'},
  {v:'1.5.0',t:'Stronger shard magnet, plus a Magnet power-up that pulls every shard on screen'},
  {v:'1.4.0',t:'Splash screen, settings, update checker, installable app'},
@@ -346,7 +358,7 @@ function showHow(){
    'You are <b>Prime</b>, the last Seed. Unmake them down to <b>Depth 0</b>.</p>'+
    '<ul><li>Hit a shape and it splits into copies of itself: Depth 3 → 2 → 1 → 0.</li>'+
    '<li>Your shots branch too: every bullet splits in two, again and again. Collect <b>shards</b> to raise your Recursion Depth.</li>'+
-   '<li><b>NOVA</b>: a ring that spawns rings that spawn rings.</li>'+
+   '<li><b>NOVA</b>: a ring that spawns rings that spawn rings. It levels up as you collect shards: more rings, wider reach.</li>'+
    '<li>Power-ups drop now and then. Blue: a <b>Sierpinski shield</b> that splits into smaller shields when hit. Green: <b>Mirror Seed</b> drones, each orbited by a smaller drone. Amber: a <b>Hilbert drone</b> that sweeps the whole arena. Pink: a <b>Magnet</b> that pulls every shard on screen to you. Power-ups come in pairs joined by a dotted line: take one and the other vanishes.</li>'+
    '<li><b>Branch or Focus</b> (button, or F): Branch splits shots and shapes into swarms for big scores. Focus fires one heavy shot that ends a shape with no copies, but pays little.</li>'+
    '<li>A shape left alone for a few seconds <b>grows back</b> one depth. Wipe out every copy from one starting shape for a <b>family bonus</b>.</li>'+
@@ -504,7 +516,8 @@ function update(dt){
     if(l<R){const boost=mg?1:1+(1-l/R)*2;s.vx+=dx/l*(mg?2600:1500)*boost*U*dt;s.vy+=dy/l*(mg?2600:1500)*boost*U*dt;}
     s.vx*=.95;s.vy*=.95; s.x+=s.vx*dt; s.y+=s.vy*dt;
     if(l<18*U){
-      s.life=0; G.energy=Math.min(100,G.energy+7); G.score+=5; G.shards++;
+      s.life=0; G.energy=Math.min(100,G.energy+7); G.score+=5; G.shards++; G.sTot++;
+      if(novaLvl()>G.novaSeen){G.novaSeen=novaLvl();G.toast2={t:0,dur:2,text:'NOVA LEVEL '+G.novaSeen};}
       if(G.shards>=G.need){
         G.shards=0; G.need+=6;
         if(G.branch<4){G.branch++;G.toast={t:0,dur:1.8,text:'RECURSION DEPTH '+G.branch};}
@@ -584,6 +597,7 @@ function update(dt){
   if(G.comboT>0){G.comboT-=dt;if(G.comboT<=0)G.combo=1;}
   if(G.banner){G.banner.t+=dt;if(G.banner.t>G.banner.dur)G.banner=null;}
   if(G.toast){G.toast.t+=dt;if(G.toast.t>G.toast.dur)G.toast=null;}
+  if(G.toast2){G.toast2.t+=dt;if(G.toast2.t>G.toast2.dur)G.toast2=null;}
   updateFx(dt);
 }
 
@@ -616,7 +630,7 @@ function render(){
   ctx.lineWidth=2*U;
   for(const g of G.rings){
     const a=.85*(1-.5*g.r/g.max);
-    ctx.strokeStyle=['rgba(255,200,87,','rgba(255,95,168,','rgba(178,140,255,','rgba(78,224,255,'][g.gen]+a+')';
+    ctx.strokeStyle=['rgba(255,200,87,','rgba(255,95,168,','rgba(178,140,255,','rgba(78,224,255,','rgba(125,255,178,'][g.gen]+a+')';
     ctx.beginPath(); ctx.arc(g.x,g.y,g.r,0,TAU); ctx.stroke();
   }
   // shards
@@ -761,6 +775,15 @@ function hud(){
     ctx.fillStyle='#9fb7e8'; ctx.font='500 '+(14*U)+'px system-ui,sans-serif';
     const ls=wrap(b.text,Math.min(W*.86,520));
     ls.forEach((l,i)=>ctx.fillText(l,W/2,H*.16+34*U+i*20*U));
+    ctx.globalAlpha=1;
+  }
+  {
+    const lvl=novaLvl(),lbl='NOVA<br><small style="font-weight:600;letter-spacing:.04em">LV '+lvl+(lvl>=NOVA.length+0?' MAX':'')+'</small>';
+    if(novaBtn.__lbl!==lbl){novaBtn.__lbl=lbl;novaBtn.innerHTML=lbl;}
+  }
+  if(G.toast2){
+    const t=G.toast2,k=t.t/t.dur; ctx.globalAlpha=Math.max(0,1-k); ctx.textAlign='center';
+    ctx.fillStyle='#4ee0ff'; ctx.font='800 '+(18*U)+'px system-ui,sans-serif'; ctx.fillText(t.text,W/2,H*.36+28*U-k*16);
     ctx.globalAlpha=1;
   }
   if(G.toast){
