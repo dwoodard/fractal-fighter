@@ -24,6 +24,7 @@
   #mode{position:fixed;left:16px;bottom:20px;width:82px;height:82px;border-radius:50%;display:none;font-weight:800;letter-spacing:.08em;
     font-size:12px;background:#0b1230dd;border:2px solid #7dffb2aa;color:#7dffb2;touch-action:manipulation}
   #mode.focus{border-color:#ffc857cc;color:#ffc857}
+  #mode small{display:block;font-size:10px;font-weight:600;letter-spacing:0;margin-top:3px;line-height:1.15}
   @keyframes pulse{to{box-shadow:0 0 34px #b28cffee}}
   #screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;
     background:radial-gradient(#070a18aa,#070a18ee);overflow:auto}
@@ -195,9 +196,12 @@ function fire(){
 function toggleMode(){
   if(state!=='play')return;
   G.mode=G.mode==='focus'?'branch':'focus'; syncMode();
+  G.toast2=G.mode==='focus'
+    ?{t:0,dur:3,c:'#ffc857',text:'FOCUS',sub:'One heavy shot ends a shape outright, with no smaller copies. Safer, but less score and fewer shards.'}
+    :{t:0,dur:3,c:'#7dffb2',text:'BRANCH',sub:'Shots split into many, and every hit splits a shape into smaller copies. Swarms, but big scores and lots of shards.'};
 }
 function syncMode(){
-  modeBtn.textContent=G.mode==='focus'?'FOCUS':'BRANCH';
+  modeBtn.innerHTML=G.mode==='focus'?'FOCUS<small>one clean shot</small>':'BRANCH<small>splits into many</small>';
   modeBtn.classList.toggle('focus',G.mode==='focus');
 }
 function stepBullet(b,dt){
@@ -250,7 +254,7 @@ function stepRing(g,dt){
 function start(){
   G={t:0,score:0,wave:0,hp:5,energy:0,branch:1,shards:0,need:8,combo:1,comboT:0,
      px:W/2,py:H*.68,pvx:0,pvy:0,ang:-Math.PI/2,inv:0,fireT:.3,shake:0,flash:0,kills:0,
-     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mode:'branch',famN:0,sTot:0,novaSeen:1,toast2:null,magT:0,mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
+     bullets:[],en:[],parts:[],rings:[],sh:[],sp:[],tok:[],mode:'branch',famN:0,sTot:0,novaSeen:1,toast2:null,tipT:7,magT:0,mirror:0,mirrorT:0,dft:[0,0,0],drones:[],hil:null,queue:[],spawnT:0,delay:1.2,banner:null,toast:null,clearing:false,nextIn:0};
   state='play'; screenEl.style.display='none'; novaBtn.style.display='block'; modeBtn.style.display='block'; syncMode();
   nextWave();
 }
@@ -269,8 +273,9 @@ function gameOver(){
   },800);
 }
 /* ---------- versioning, settings and splash ---------- */
-const APP_VERSION='1.6.0', BUILD_DATE='2026-11-25';
+const APP_VERSION='1.6.1', BUILD_DATE='2026-11-25';
 const CHANGELOG=[
+ {v:'1.6.1',t:'Clearer Branch and Focus: labeled button, explanation on switch, first-play tip'},
  {v:'1.6.0',t:'Nova levels up as you collect shards: more rings, wider reach'},
  {v:'1.5.1',t:'Clean view: fainter, smaller add-ons so your ship stays easy to see (Settings)'},
  {v:'1.5.0',t:'Stronger shard magnet, plus a Magnet power-up that pulls every shard on screen'},
@@ -360,7 +365,7 @@ function showHow(){
    '<li>Your shots branch too: every bullet splits in two, again and again. Collect <b>shards</b> to raise your Recursion Depth.</li>'+
    '<li><b>NOVA</b>: a ring that spawns rings that spawn rings. It levels up as you collect shards: more rings, wider reach.</li>'+
    '<li>Power-ups drop now and then. Blue: a <b>Sierpinski shield</b> that splits into smaller shields when hit. Green: <b>Mirror Seed</b> drones, each orbited by a smaller drone. Amber: a <b>Hilbert drone</b> that sweeps the whole arena. Pink: a <b>Magnet</b> that pulls every shard on screen to you. Power-ups come in pairs joined by a dotted line: take one and the other vanishes.</li>'+
-   '<li><b>Branch or Focus</b> (button, or F): Branch splits shots and shapes into swarms for big scores. Focus fires one heavy shot that ends a shape with no copies, but pays little.</li>'+
+   '<li><b>Two weapons</b>: tap the button at bottom-left, or press F. <b>Branch</b> fires shots that split into many, and every hit splits a shape into smaller copies, so you get swarms, lots of shards and big scores. <b>Focus</b> fires one heavy shot that destroys a shape outright with no copies. It is safer, but pays less and drops fewer shards.</li>'+
    '<li>A shape left alone for a few seconds <b>grows back</b> one depth. Wipe out every copy from one starting shape for a <b>family bonus</b>.</li>'+
    '<li>Drag to move (mouse, WASD or arrows also work). You aim and fire on your own. Space or the button fires Nova.</li></ul>'+
    '<button class="go" id="go">PLAY</button> <button class="sec" data-act="splash">BACK</button>';
@@ -598,6 +603,10 @@ function update(dt){
   if(G.banner){G.banner.t+=dt;if(G.banner.t>G.banner.dur)G.banner=null;}
   if(G.toast){G.toast.t+=dt;if(G.toast.t>G.toast.dur)G.toast=null;}
   if(G.toast2){G.toast2.t+=dt;if(G.toast2.t>G.toast2.dur)G.toast2=null;}
+  if(G.tipT>0){
+    G.tipT-=dt;
+    if(G.tipT<=0)G.toast2={t:0,dur:5,c:'#7dffb2',text:'TWO WEAPONS',sub:'Tap the button at bottom-left to switch. Branch splits shots into swarms for big scores. Focus fires one clean shot that ends a shape with no copies.'};
+  }
   updateFx(dt);
 }
 
@@ -782,8 +791,13 @@ function hud(){
     if(novaBtn.__lbl!==lbl){novaBtn.__lbl=lbl;novaBtn.innerHTML=lbl;}
   }
   if(G.toast2){
-    const t=G.toast2,k=t.t/t.dur; ctx.globalAlpha=Math.max(0,1-k); ctx.textAlign='center';
-    ctx.fillStyle='#4ee0ff'; ctx.font='800 '+(18*U)+'px system-ui,sans-serif'; ctx.fillText(t.text,W/2,H*.36+28*U-k*16);
+    const t=G.toast2,k=t.t/t.dur; ctx.globalAlpha=k<.75?1:Math.max(0,(1-k)/.25); ctx.textAlign='center';
+    const y0=H*.36+28*U;
+    ctx.fillStyle=t.c||'#4ee0ff'; ctx.font='800 '+(18*U)+'px system-ui,sans-serif'; ctx.fillText(t.text,W/2,y0);
+    if(t.sub){
+      ctx.fillStyle='#cfe0ff'; ctx.font='500 '+(13*U)+'px system-ui,sans-serif';
+      wrap(t.sub,Math.min(W*.86,380)).forEach((l,i)=>ctx.fillText(l,W/2,y0+24*U+i*17*U));
+    }
     ctx.globalAlpha=1;
   }
   if(G.toast){
