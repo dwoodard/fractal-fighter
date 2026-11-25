@@ -258,8 +258,9 @@ function gameOver(){
   },800);
 }
 /* ---------- versioning, settings and splash ---------- */
-const APP_VERSION='1.5.0', BUILD_DATE='2026-11-25';
+const APP_VERSION='1.5.1', BUILD_DATE='2026-11-25';
 const CHANGELOG=[
+ {v:'1.5.1',t:'Clean view: fainter, smaller add-ons so your ship stays easy to see (Settings)'},
  {v:'1.5.0',t:'Stronger shard magnet, plus a Magnet power-up that pulls every shard on screen'},
  {v:'1.4.0',t:'Splash screen, settings, update checker, installable app'},
  {v:'1.3.0',t:'Branch or Focus weapons, regrowth, family bonus, paired power-ups'},
@@ -267,8 +268,8 @@ const CHANGELOG=[
  {v:'1.1.0',t:'Sierpinski Shield power-up'},
  {v:'1.0.0',t:'First release: splitting shapes, branching shots, Nova'}
 ];
-const SET={shake:true};
-try{const s=JSON.parse(localStorage.getItem('ff_set')||'{}');if(s.shake===false)SET.shake=false;}catch(e){}
+const SET={shake:true,clean:true};
+try{const s=JSON.parse(localStorage.getItem('ff_set')||'{}');if(s.shake===false)SET.shake=false;if(s.clean===false)SET.clean=false;}catch(e){}
 const saveSet=()=>{try{localStorage.setItem('ff_set',JSON.stringify(SET))}catch(e){}};
 let lastCheck=0,latest=null,ustatus='',resetArm=false;
 try{lastCheck=+localStorage.getItem('ff_lastcheck')||0}catch(e){}
@@ -310,7 +311,8 @@ function showSettings(){
     (ustatus?'<p class="stat" style="font-size:13px;color:#ffc857">'+ustatus+'</p>':'')+
     (hasUpdate()?'<button class="go sm" data-act="apply">UPDATE TO v'+latest.version+'</button>'
                 :'<button class="go sm" data-act="check">CHECK FOR UPDATES</button>')+'</div>'+
-    '<div class="card"><div class="line"><span>Screen shake</span><button class="tog'+(SET.shake?' on':'')+'" data-act="shake">'+(SET.shake?'ON':'OFF')+'</button></div>'+
+    '<div class="card"><div class="line"><span>Clean view (fainter add-ons)</span><button class="tog'+(SET.clean?' on':'')+'" data-act="clean">'+(SET.clean?'ON':'OFF')+'</button></div>'+
+    '<div class="line"><span>Screen shake</span><button class="tog'+(SET.shake?' on':'')+'" data-act="shake">'+(SET.shake?'ON':'OFF')+'</button></div>'+
     '<div class="line"><span>Best score</span><button class="sec sm" data-act="reset">'+(resetArm?'TAP AGAIN TO CONFIRM':'RESET')+'</button></div>'+
     '<div class="line"><span>Cache</span><button class="sec sm" data-act="clear">CLEAR AND RELOAD</button></div></div>'+
     '<div class="card log"><b>What\'s new</b>'+CHANGELOG.map(c=>'<p><i>v'+c.v+'</i>'+c.t+'</p>').join('')+'</div>'+
@@ -362,6 +364,7 @@ panel.addEventListener('click',e=>{
   else if(a==='check')checkUpdate(false);
   else if(a==='apply'||a==='clear')applyUpdate();
   else if(a==='shake'){SET.shake=!SET.shake;saveSet();showSettings();}
+  else if(a==='clean'){SET.clean=!SET.clean;saveSet();showSettings();}
   else if(a==='reset'){
     if(resetArm){best=0;try{localStorage.removeItem('ff_best')}catch(_){}resetArm=false;}else resetArm=true;
     showSettings();
@@ -448,7 +451,7 @@ function update(dt){
   G.rings=G.rings.filter(g=>!g.dead);
 
   // --- shield pieces orbit the player
-  {const n=G.sp.length,rho=(30+n*1.8)*U;
+  {const n=G.sp.length,rho=(SET.clean?40+n*1.2:30+n*1.8)*U;
    for(let i=0;i<n;i++){const p=G.sp[i],a=G.t*2.2+i*TAU/n;p.x=G.px+Math.cos(a)*rho;p.y=G.py+Math.sin(a)*rho;if(p.cd>0)p.cd-=dt;}}
   // --- enemies
   for(const e of G.en){
@@ -541,7 +544,7 @@ function update(dt){
     G.mirrorT-=dt;
     let qx=G.px,qy=G.py;
     for(let i=0;i<G.mirror;i++){
-      const a=G.t*(1.7+i*.6)*(i%2?-1:1)+i*2.1,rho=(40-i*9)*U,ox=qx,oy=qy;
+      const a=G.t*(1.7+i*.6)*(i%2?-1:1)+i*2.1,rho=(SET.clean?56-i*10:40-i*9)*U,ox=qx,oy=qy;
       qx+=Math.cos(a)*rho; qy+=Math.sin(a)*rho;
       G.drones.push({x:qx,y:qy,ox,oy,k:Math.pow(.62,i+1),i});
     }
@@ -623,18 +626,19 @@ function render(){
     ctx.beginPath(); poly(s.x,s.y,6*U,G.t*3,3,0); ctx.fill();
   }
   // magnet field: rings flowing inward
+  const Q=SET.clean?.4:1;
   if(G.magT>0){
-    ctx.lineWidth=2*U;
+    ctx.lineWidth=(SET.clean?1.2:2)*U;
     for(let k=0;k<3;k++){
-      const ph=(G.t*.9+k/3)%1,r=(1-ph)*220*U;
-      ctx.strokeStyle='rgba(255,143,208,'+(ph*.5)+')';
+      const ph=(G.t*.9+k/3)%1,r=(1-ph)*(SET.clean?170:220)*U;
+      ctx.strokeStyle='rgba(255,143,208,'+(ph*.5*Q)+')';
       ctx.beginPath(); ctx.arc(G.px,G.py,r,0,TAU); ctx.stroke();
     }
   }
   // Hilbert drone trail and Mirror Seed drones
   if(G.hil){
     const h=G.hil,n=Math.min(h.pts.length-1,(h.i|0)+1);
-    ctx.strokeStyle='rgba(255,200,87,.55)'; ctx.lineWidth=2*U; ctx.lineCap='round';
+    ctx.strokeStyle='rgba(255,200,87,'+(.55*Q)+')'; ctx.lineWidth=(SET.clean?1.4:2)*U; ctx.lineCap='round';
     ctx.beginPath(); ctx.moveTo(h.pts[0][0],h.pts[0][1]);
     for(let i=1;i<=n;i++)ctx.lineTo(h.pts[i][0],h.pts[i][1]);
     ctx.lineTo(h.x,h.y); ctx.stroke();
@@ -642,10 +646,13 @@ function render(){
   }
   ctx.lineWidth=1.6*U;
   for(const d of G.drones){
-    ctx.strokeStyle='rgba(125,255,178,.25)'; ctx.beginPath(); ctx.moveTo(d.ox,d.oy); ctx.lineTo(d.x,d.y); ctx.stroke();
-    ctx.strokeStyle='#7dffb2'; ctx.fillStyle='rgba(125,255,178,.18)';
-    ctx.beginPath(); poly(d.x,d.y,17*U*Math.max(.5,d.k*1.6),G.ang,3,d.i===0?1:0); ctx.stroke();
-    ctx.beginPath(); poly(d.x,d.y,17*U*Math.max(.5,d.k*1.6),G.ang,3,0); ctx.fill();
+    const dr=(SET.clean?12:17)*U*Math.max(.5,d.k*1.6);
+    ctx.strokeStyle='rgba(125,255,178,'+(.25*Q)+')'; ctx.beginPath(); ctx.moveTo(d.ox,d.oy); ctx.lineTo(d.x,d.y); ctx.stroke();
+    ctx.globalAlpha=SET.clean?.7:1;
+    ctx.strokeStyle=SET.clean?'#3fd59a':'#7dffb2'; ctx.fillStyle='rgba(125,255,178,'+(.18*Q)+')';
+    ctx.beginPath(); poly(d.x,d.y,dr,G.ang,3,SET.clean?0:(d.i===0?1:0)); ctx.stroke();
+    ctx.beginPath(); poly(d.x,d.y,dr,G.ang,3,0); ctx.fill();
+    ctx.globalAlpha=1;
   }
   // shield tokens and shield pieces (each piece contains copies of itself)
   ctx.lineWidth=1.8*U;
@@ -659,9 +666,10 @@ function render(){
   }
   for(let i=0;i<G.sp.length;i++){
     const p=G.sp[i],r=(6+p.tier*5)*U;
-    ctx.globalAlpha=p.cd>0?.5:1;
-    ctx.fillStyle='rgba(111,183,255,.18)'; ctx.beginPath(); poly(p.x,p.y,r,G.t*2+i,3,0); ctx.fill();
-    ctx.strokeStyle='#6fb7ff'; ctx.beginPath(); poly(p.x,p.y,r,G.t*2+i,3,p.tier); ctx.stroke();
+    ctx.globalAlpha=(p.cd>0?.5:1)*(SET.clean?.7:1);
+    ctx.lineWidth=(SET.clean?1.4:1.8)*U;
+    ctx.fillStyle='rgba(111,183,255,'+(.18*Q)+')'; ctx.beginPath(); poly(p.x,p.y,r,G.t*2+i,3,0); ctx.fill();
+    ctx.strokeStyle='#6fb7ff'; ctx.beginPath(); poly(p.x,p.y,r,G.t*2+i,3,SET.clean?Math.min(p.tier,1):p.tier); ctx.stroke();
   }
   ctx.globalAlpha=1;
   // enemies: one stroked path per shape, containing its own recursion
@@ -700,9 +708,9 @@ function render(){
   ctx.globalAlpha=1;
   // player: a Seed whose own fractal depth equals your Recursion Depth
   if(state==='play'&&!(G.inv>0&&((G.t*20)|0)%2)){
-    ctx.strokeStyle=G.mode==='focus'?'#ffc857':'#7dffb2'; ctx.lineWidth=1.8*U;
+    ctx.strokeStyle=G.mode==='focus'?'#ffc857':'#d9fff0'; ctx.lineWidth=2.2*U;
     ctx.beginPath(); poly(G.px,G.py,16*U,G.ang,3,G.mode==='focus'?0:Math.min(G.branch,3)); ctx.stroke();
-    ctx.fillStyle='rgba(125,255,178,.18)';
+    ctx.fillStyle=G.mode==='focus'?'rgba(255,200,87,.35)':'rgba(125,255,178,.38)';
     ctx.beginPath(); poly(G.px,G.py,16*U,G.ang,3,0); ctx.fill();
   }
   ctx.globalCompositeOperation='source-over';
