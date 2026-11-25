@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Fractal Fight</title>
+<meta name="theme-color" content="#070a18">
+<meta name="description" content="A geometric game of recursion. Every shape splits into smaller copies of itself.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fractal Fight">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
   html,body{margin:0;height:100%;background:#070a18;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#dbe8ff}
@@ -641,6 +650,9 @@ function frame(ts){
 window.__ff={toggle:toggleMode,start,nova,get G(){return G},get state(){return state},update,render};
 showMenu();
 requestAnimationFrame(frame);
+if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
+  addEventListener('load',()=>{try{navigator.serviceWorker.register('sw.js').catch(()=>{});}catch(e){}});
+}
 })();
 </script>
 </body>
